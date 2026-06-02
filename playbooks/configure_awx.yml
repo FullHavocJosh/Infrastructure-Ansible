@@ -40,7 +40,7 @@
       validate_certs: true
 
   vars:
-    awx_org: "Default"
+    awx_org: "Infrastructure-Ansible"
     awx_project_name: "Infrastructure-Ansible"
     awx_project_url: "https://github.com/fullhavocjosh/Infrastructure-Ansible.git"
     awx_inventory_name: "Production"
@@ -106,6 +106,8 @@
         scm_url: "{{ awx_project_url }}"
         scm_branch: main
         scm_update_on_launch: true
+        update_project: true
+        wait: true
         state: present
 
     # ── Inventory ───────────────────────────────────────────────────────────
