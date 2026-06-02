@@ -14,7 +14,7 @@
 #   TRUENAS_ANSIBLE_API_KEY — Doppler key: TRUENAS_ANSIBLE_API_KEY
 #
 # ── Bootstrap (first run, before AWX is configured) ───────────────────────
-#   doppler run --project matrix-homelab --config hetzner -- \
+#   doppler run --project FullHavocJosh --config root_hetzner-cluster -- \
 #     ansible-playbook playbooks/configure_awx.yml
 #
 # ── Subsequent runs via AWX ────────────────────────────────────────────────
