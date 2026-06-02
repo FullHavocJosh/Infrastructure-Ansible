@@ -1,0 +1,14 @@
+# Start with min profile — catches syntax errors and deprecated features
+# without enforcing style rules while playbooks are being vetted.
+# Tighten to 'basic' or 'moderate' once playbooks are stable.
+profile: min
+
+warn_list:
+  - fqcn          # Short module names (uri vs ansible.builtin.uri)
+  - no-changed-when
+  - yaml[line-length]
+  - yaml[truthy]
+
+exclude_paths:
+  - .git/
+  - roles/
