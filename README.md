@@ -9,7 +9,7 @@ Ansible project for home lab automation. Used as an AWX project source.
 ├── requirements.yml                    # Collection dependencies (auto-installed by AWX)
 ├── inventories/
 │   └── production/
-│       └── hosts.yml                   # TrueNAS + home lab inventory
+│       └── hosts.yml                   # TrueNAS + Ubuntu servers inventory
 ├── playbooks/
 │   ├── overview.yml                    # Full TrueNAS system overview
 │   ├── query_truenas_info.yml          # System info, pools, shares
@@ -20,7 +20,8 @@ Ansible project for home lab automation. Used as an AWX project source.
 │   ├── manage_smb_shares.yml           # SMB share management (template)
 │   ├── manage_virtualization.yml       # LXC container/VM lifecycle
 │   ├── discover_container_customizations.yml  # Discovery helper (local output)
-│   └── sync_azerothcore_configs.yml    # AzerothCore env templates
+│   ├── sync_azerothcore_configs.yml    # AzerothCore env templates
+│   └── configure_6rx26x1.yml          # 6rx26x1 audit/verification (SSH)
 ├── group_vars/
 │   └── truenas/
 │       ├── apps.yml                    # Documented app inventory
@@ -72,9 +73,10 @@ The default `awx-ee` image should have `community.general` available, but verify
 
 ## Hosts
 
-| Host         | Connection    | Purpose                                    |
-| ------------ | ------------- | ------------------------------------------ |
-| `truenas-01` | `local` (API) | TrueNAS Scale — media, storage, containers |
+| Host         | Connection    | Purpose                                                        |
+| ------------ | ------------- | -------------------------------------------------------------- |
+| `truenas-01` | `local` (API) | TrueNAS Scale — media, storage, containers                     |
+| `6rx26x1`    | SSH           | Dell PowerEdge Ubuntu Server — NFS re-export gateway (96 GB)  |
 
 ## Notes
 

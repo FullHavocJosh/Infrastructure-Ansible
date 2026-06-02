@@ -1,0 +1,104 @@
+---
+# Operational audit and verification playbook for 6rx26x1 (Dell PowerEdge Ubuntu Server).
+# Provisioning is managed by Terrakube workspace home-infrastructure-6rx26x1.
+# This playbook verifies live state and is intended to be run from AWX.
+#
+# AWX credential required: SSH Machine Credential for havoc@6rx26x1.rollet.family
+
+- name: Verify 6rx26x1 state
+  hosts: 6rx26x1
+  gather_facts: true
+  become: true
+
+  vars:
+    required_packages:
+      - btop
+      - curl
+      - git
+      - htop
+      - nfs-common
+      - nfs-kernel-server
+      - open-iscsi
+      - unattended-upgrades
+      - vim
+    nfs_mount_points:
+      - /mnt/truenas/books
+      - /mnt/truenas/downloads
+      - /mnt/truenas/movies
+      - /mnt/truenas/music
+      - /mnt/truenas/tv
+      - /mnt/k3s-backups
+    nfs_source_host: "192.168.144.5"
+    ufw_required_rules:
+      - "22/tcp ALLOW IN Anywhere"
+      - "2049 ALLOW IN 192.168.144.0/24"
+      - "111 ALLOW IN 192.168.144.0/24"
+      - "20048 ALLOW IN 192.168.144.0/24"
+
+  tasks:
+    - name: Gather package facts
+      ansible.builtin.package_facts:
+        manager: apt
+
+    - name: Report missing packages
+      ansible.builtin.debug:
+        msg: "MISSING: {{ required_packages | difference(ansible_facts.packages.keys()) }}"
+      when: required_packages | difference(ansible_facts.packages.keys()) | length > 0
+
+    - name: Confirm all required packages present
+      ansible.builtin.debug:
+        msg: "All required packages installed."
+      when: required_packages | difference(ansible_facts.packages.keys()) | length == 0
+
+    - name: Check NFS server service
+      ansible.builtin.systemd:
+        name: nfs-server
+        enabled: true
+        state: started
+
+    - name: Check rpcbind service
+      ansible.builtin.systemd:
+        name: rpcbind
+        enabled: true
+        state: started
+
+    - name: Check unattended-upgrades service
+      ansible.builtin.systemd:
+        name: unattended-upgrades
+        enabled: true
+        state: started
+
+    - name: Verify NFS mounts active
+      ansible.builtin.shell: mount | grep "{{ item }}"
+      loop: "{{ nfs_mount_points }}"
+      register: mount_checks
+      changed_when: false
+      failed_when: mount_checks.rc != 0
+
+    - name: Report active NFS exports
+      ansible.builtin.command: exportfs -v
+      register: nfs_exports
+      changed_when: false
+
+    - name: Display NFS exports
+      ansible.builtin.debug:
+        msg: "{{ nfs_exports.stdout_lines }}"
+
+    - name: Get UFW status
+      ansible.builtin.command: ufw status verbose
+      register: ufw_status
+      changed_when: false
+
+    - name: Display UFW status
+      ansible.builtin.debug:
+        msg: "{{ ufw_status.stdout_lines }}"
+
+    - name: System summary
+      ansible.builtin.debug:
+        msg:
+          - "Hostname:  {{ ansible_hostname }}"
+          - "OS:        {{ ansible_distribution }} {{ ansible_distribution_version }}"
+          - "Kernel:    {{ ansible_kernel }}"
+          - "Memory:    {{ ansible_memtotal_mb }} MB"
+          - "Uptime:    {{ (ansible_uptime_seconds / 3600) | int }} hours"
+          - "NFS role:  re-export gateway for TrueNAS ({{ nfs_source_host }})"
