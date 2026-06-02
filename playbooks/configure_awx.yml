@@ -9,9 +9,10 @@
 # AWX will prompt to confirm the target host/group before every run.
 #
 # Secrets are read from environment variables injected by Doppler:
-#   AWX_ADMIN_PASSWORD      — Doppler key: AWX_ADMIN_PASSWORD
-#   AWX_ADMIN_PAT           — Doppler key: AWX_ADMIN_PAT (personal access token)
-#   TRUENAS_ANSIBLE_API_KEY — Doppler key: TRUENAS_ANSIBLE_API_KEY
+#   AWX_ADMIN_PASSWORD        — Doppler key: AWX_ADMIN_PASSWORD
+#   AWX_ADMIN_PAT             — Doppler key: AWX_ADMIN_PAT (personal access token)
+#   TRUENAS_ANSIBLE_API_KEY   — Doppler key: TRUENAS_ANSIBLE_API_KEY
+#   TERRAKUBE_SSH_PRIVATE_KEY — Doppler key: TERRAKUBE_SSH_PRIVATE_KEY (reused for AWX→6rx26x1)
 #
 # ── Bootstrap (first run, before AWX is configured) ───────────────────────
 #   doppler run --project FullHavocJosh --config root_hetzner-cluster -- \
@@ -43,6 +44,7 @@
     # runs the "TrueNAS API Key" credential is attached to the template instead.
     truenas_api_key: "{{ lookup('env', 'TRUENAS_ANSIBLE_API_KEY') }}"
     awx_admin_pat: "{{ lookup('env', 'AWX_ADMIN_PAT') }}"
+    ssh_private_key: "{{ lookup('env', 'TERRAKUBE_SSH_PRIVATE_KEY') }}"
 
     truenas_job_templates:
       - name: "TrueNAS - Overview"
@@ -55,6 +57,10 @@
         playbook: "playbooks/manage_smb_shares_actual.yml"
       - name: "TrueNAS - Manage Virtualization"
         playbook: "playbooks/manage_virtualization.yml"
+
+    ubuntu_server_job_templates:
+      - name: "6rx26x1 - Verify State"
+        playbook: "playbooks/configure_6rx26x1.yml"
 
   tasks:
 
@@ -104,6 +110,18 @@
         state: present
       no_log: true
       when: truenas_api_key | length > 0
+
+    - name: Ensure 6rx26x1 SSH Machine credential
+      awx.awx.credential:
+        name: "6rx26x1 SSH"
+        organization: "{{ awx_org }}"
+        credential_type: "Machine"
+        inputs:
+          username: "havoc"
+          ssh_key_data: "{{ ssh_private_key }}"
+        state: present
+      no_log: true
+      when: ssh_private_key | length > 0
 
     # ── Project ─────────────────────────────────────────────────────────────
 
@@ -156,6 +174,22 @@
         ask_limit_on_launch: true
         state: present
       loop: "{{ truenas_job_templates }}"
+
+    - name: Ensure ubuntu_servers job templates
+      awx.awx.job_template:
+        name: "{{ item.name }}"
+        organization: "{{ awx_org }}"
+        job_type: run
+        inventory: "{{ awx_inventory_name }}"
+        project: "{{ awx_project_name }}"
+        playbook: "{{ item.playbook }}"
+        limit: "6rx26x1"
+        credentials:
+          - "6rx26x1 SSH"
+        verbosity: 1
+        ask_limit_on_launch: true
+        state: present
+      loop: "{{ ubuntu_server_job_templates }}"
 
     - name: Ensure AWX - Configure job template
       awx.awx.job_template:
