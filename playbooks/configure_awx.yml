@@ -61,6 +61,10 @@
     ubuntu_server_job_templates:
       - name: "6rx26x1 - Verify State"
         playbook: "playbooks/configure_6rx26x1.yml"
+        limit: "6rx26x1"
+      - name: "705g4 - Verify State"
+        playbook: "playbooks/configure_705g4.yml"
+        limit: "705g4"
 
   tasks:
 
@@ -111,9 +115,9 @@
       no_log: true
       when: truenas_api_key | length > 0
 
-    - name: Ensure 6rx26x1 SSH Machine credential
+    - name: Ensure ubuntu_servers SSH Machine credential
       awx.awx.credential:
-        name: "6rx26x1 SSH"
+        name: "ubuntu_servers SSH"
         organization: "{{ awx_org }}"
         credential_type: "Machine"
         inputs:
@@ -183,9 +187,9 @@
         inventory: "{{ awx_inventory_name }}"
         project: "{{ awx_project_name }}"
         playbook: "{{ item.playbook }}"
-        limit: "6rx26x1"
+        limit: "{{ item.limit }}"
         credentials:
-          - "6rx26x1 SSH"
+          - "ubuntu_servers SSH"
         verbosity: 1
         ask_limit_on_launch: true
         state: present

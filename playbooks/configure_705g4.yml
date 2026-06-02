@@ -1,0 +1,113 @@
+---
+# Operational audit and verification playbook for 705g4 (HP ProDesk 705 G4 Ubuntu Server).
+# Provisioning is managed by Terrakube workspace home-infrastructure-705g4.
+# This playbook verifies live state and is intended to be run from AWX.
+#
+# Note: Terrakube workspace must run first to add the AWX SSH key to authorized_keys.
+# AWX credential required: ubuntu_servers SSH
+
+- name: Verify 705g4 state
+  hosts: 705g4
+  gather_facts: true
+  become: true
+
+  vars:
+    required_packages_standard:
+      - btop
+      - curl
+      - etcd-client
+      - gnupg2
+      - nfs-common
+      - open-iscsi
+      - radeontop
+      - software-properties-common
+      - unattended-upgrades
+      - wget
+      - wpasupplicant
+    required_packages_rocm:
+      - libdrm-amdgpu1
+      - mesa-utils
+      - mesa-vulkan-drivers
+      - rocm-hip-runtime
+      - rocminfo
+      - rocm-opencl-runtime
+      - rocm-smi
+      - xserver-xorg-video-amdgpu
+    rocm_repo_file: /etc/apt/sources.list.d/rocm.list
+    rocm_keyring: /etc/apt/keyrings/rocm.gpg
+
+  tasks:
+    - name: Gather package facts
+      ansible.builtin.package_facts:
+        manager: apt
+
+    - name: Report missing standard packages
+      ansible.builtin.debug:
+        msg: "MISSING (standard): {{ required_packages_standard | difference(ansible_facts.packages.keys()) }}"
+      when: required_packages_standard | difference(ansible_facts.packages.keys()) | length > 0
+
+    - name: Report missing ROCm packages
+      ansible.builtin.debug:
+        msg: "MISSING (ROCm): {{ required_packages_rocm | difference(ansible_facts.packages.keys()) }}"
+      when: required_packages_rocm | difference(ansible_facts.packages.keys()) | length > 0
+
+    - name: Confirm all required packages present
+      ansible.builtin.debug:
+        msg: "All required packages installed."
+      when: >
+        (required_packages_standard + required_packages_rocm)
+        | difference(ansible_facts.packages.keys())
+        | length == 0
+
+    - name: Check ROCm apt repo is configured
+      ansible.builtin.stat:
+        path: "{{ rocm_repo_file }}"
+      register: rocm_repo_stat
+
+    - name: Report ROCm repo status
+      ansible.builtin.debug:
+        msg: "ROCm repo: {{ 'present' if rocm_repo_stat.stat.exists else 'MISSING — run Terrakube workspace' }}"
+
+    - name: Check ROCm GPG keyring
+      ansible.builtin.stat:
+        path: "{{ rocm_keyring }}"
+      register: rocm_key_stat
+
+    - name: Report ROCm keyring status
+      ansible.builtin.debug:
+        msg: "ROCm keyring: {{ 'present' if rocm_key_stat.stat.exists else 'MISSING' }}"
+
+    - name: Check ROCm GPU detection
+      ansible.builtin.command: rocminfo
+      register: rocminfo_output
+      changed_when: false
+      failed_when: false
+
+    - name: Report GPU detection
+      ansible.builtin.debug:
+        msg: "{{ rocminfo_output.stdout_lines | select('match', '.*Agent.*|.*Marketing.*|.*gfx.*') | list }}"
+
+    - name: Check unattended-upgrades service
+      ansible.builtin.systemd:
+        name: unattended-upgrades
+        enabled: true
+        state: started
+
+    - name: Get UFW status
+      ansible.builtin.command: ufw status verbose
+      register: ufw_status
+      changed_when: false
+
+    - name: Display UFW status
+      ansible.builtin.debug:
+        msg: "{{ ufw_status.stdout_lines }}"
+
+    - name: System summary
+      ansible.builtin.debug:
+        msg:
+          - "Hostname:  {{ ansible_hostname }}"
+          - "OS:        {{ ansible_distribution }} {{ ansible_distribution_version }}"
+          - "Kernel:    {{ ansible_kernel }}"
+          - "Memory:    {{ ansible_memtotal_mb }} MB"
+          - "Uptime:    {{ (ansible_uptime_seconds / 3600) | int }} hours"
+          - "Role:      GPU compute server (AMD ROCm 6.3)"
