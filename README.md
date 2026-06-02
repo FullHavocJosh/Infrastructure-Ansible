@@ -21,7 +21,8 @@ Ansible project for home lab automation. Used as an AWX project source.
 │   ├── manage_virtualization.yml       # LXC container/VM lifecycle
 │   ├── discover_container_customizations.yml  # Discovery helper (local output)
 │   ├── sync_azerothcore_configs.yml    # AzerothCore env templates
-│   └── configure_6rx26x1.yml          # 6rx26x1 audit/verification (SSH)
+│   ├── configure_6rx26x1.yml          # 6rx26x1 audit/verification (SSH)
+│   └── configure_705g4.yml            # 705g4 audit/verification (SSH, ROCm)
 ├── group_vars/
 │   └── truenas/
 │       ├── apps.yml                    # Documented app inventory
@@ -77,6 +78,7 @@ The default `awx-ee` image should have `community.general` available, but verify
 | ------------ | ------------- | -------------------------------------------------------------- |
 | `truenas-01` | `local` (API) | TrueNAS Scale — media, storage, containers                     |
 | `6rx26x1`    | SSH           | Dell PowerEdge Ubuntu Server — NFS re-export gateway (96 GB)  |
+| `705g4`      | SSH           | HP ProDesk 705 G4 Ubuntu Server — GPU compute / AMD ROCm (32 GB) |
 
 ## Notes
 
