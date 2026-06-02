@@ -1,0 +1,52 @@
+---
+# Playbook for creating and managing SMB shares on TrueNAS Scale
+
+- name: Manage TrueNAS SMB Shares
+  hosts: truenas
+  gather_facts: false
+
+  vars:
+    smb_shares:
+      - name: "media"
+        path: "/mnt/tank/media"
+        comment: "Media files share"
+        enabled: true
+      - name: "backups"
+        path: "/mnt/tank/backups"
+        comment: "Backup storage"
+        enabled: true
+
+  tasks:
+    - name: Ensure datasets exist for SMB shares
+      uri:
+        url: "{{ truenas_api_url }}/api/v2.0/pool/dataset"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ truenas_api_key }}"
+          Content-Type: "application/json"
+        body_format: json
+        body:
+          name: "tank/{{ item.name }}"
+          type: "FILESYSTEM"
+        validate_certs: "{{ truenas_verify_ssl }}"
+        status_code: [200, 201, 409]
+      loop: "{{ smb_shares }}"
+      delegate_to: localhost
+
+    - name: Create SMB shares
+      uri:
+        url: "{{ truenas_api_url }}/api/v2.0/sharing/smb"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ truenas_api_key }}"
+          Content-Type: "application/json"
+        body_format: json
+        body:
+          path: "{{ item.path }}"
+          name: "{{ item.name }}"
+          comment: "{{ item.comment }}"
+          enabled: "{{ item.enabled }}"
+        validate_certs: "{{ truenas_verify_ssl }}"
+        status_code: [200, 201, 409]
+      loop: "{{ smb_shares }}"
+      delegate_to: localhost

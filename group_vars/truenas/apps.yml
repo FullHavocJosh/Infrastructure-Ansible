@@ -1,0 +1,90 @@
+---
+# Current TrueNAS Apps Configuration
+# Documentation of all apps running on truenas.rollet.family
+# Last synced from live system: 2026-05-14
+
+apps:
+  media_servers:
+    - name: plex
+      version: "1.3.9"
+      state: RUNNING
+      purpose: "Media server"
+      category: "Media"
+
+    - name: navidrome
+      version: "1.3.9"
+      state: RUNNING
+      purpose: "Music streaming server"
+      category: "Media"
+
+  media_management_arr_stack:
+    - name: radarr
+      version: "1.4.8"
+      state: RUNNING
+      purpose: "Movie collection manager"
+      category: "Media Management"
+
+    - name: sonarr
+      version: "1.3.9"
+      state: RUNNING
+      purpose: "TV show collection manager"
+      category: "Media Management"
+
+    - name: lidarr
+      version: "1.4.7"
+      state: RUNNING
+      purpose: "Music collection manager"
+      category: "Media Management"
+
+    - name: prowlarr
+      version: "1.5.12"
+      state: RUNNING
+      purpose: "Indexer manager for *arr apps"
+      category: "Media Management"
+
+  download_clients:
+    - name: sabnzbd
+      version: "1.3.7"
+      state: RUNNING
+      purpose: "Usenet downloader"
+      category: "Downloads"
+
+    - name: metube
+      version: "1.4.29"
+      state: RUNNING
+      purpose: "YouTube downloader"
+      category: "Downloads"
+
+  media_processing:
+    - name: tdarr
+      version: "1.3.23"
+      state: RUNNING
+      purpose: "Media transcoding and processing"
+      category: "Media Processing"
+
+  utilities:
+    - name: syncthing
+      version: "1.3.9"
+      state: RUNNING
+      purpose: "File synchronization"
+      category: "Utilities"
+
+summary:
+  total_apps: 10
+  all_running: true
+  categories:
+    - Media Servers: 2
+    - Media Management (*arr): 4
+    - Downloads: 2
+    - Media Processing: 1
+    - Utilities: 1
+  removed_since_last_audit:
+    - tautulli
+    - overseerr
+    - readarr
+    - huntarr
+    - calibre
+    - calibre-web
+    - rust-desk
+    - n8n
+    - open-speed-test

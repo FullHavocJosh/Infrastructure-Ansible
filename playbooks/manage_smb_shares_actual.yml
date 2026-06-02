@@ -1,0 +1,125 @@
+---
+# Manage TrueNAS SMB Shares - Based on current configuration
+# This playbook reflects the actual shares on truenas.rollet.family
+
+- name: Manage TrueNAS SMB Shares
+  hosts: truenas
+  gather_facts: false
+
+  vars:
+    # Actual SMB shares from your TrueNAS system
+    current_smb_shares:
+      - id: 6
+        name: "Shared"
+        path: "/mnt/FastStorage/Shared"
+        pool: "FastStorage"
+        dataset: "Shared"
+        purpose: "DEFAULT_SHARE"
+        enabled: true
+        browsable: true
+        guestok: false
+        timemachine: false
+
+      - id: 14
+        name: "Media"
+        path: "/mnt/MassStorage/Media"
+        pool: "MassStorage"
+        dataset: "Media"
+        purpose: "DEFAULT_SHARE"
+        enabled: true
+        browsable: true
+        guestok: false
+        timemachine: false
+
+      - id: 8
+        name: "M1 Mac Mini Time Machine"
+        path: "/mnt/MassStorage/Helios/TimeMachines/M1MacMini"
+        pool: "MassStorage"
+        dataset: "Helios/TimeMachines/M1MacMini"
+        purpose: "ENHANCED_TIMEMACHINE"
+        enabled: true
+        browsable: true
+        guestok: false
+        timemachine: true
+        path_suffix: "%U"
+        vuid: "77eff78e-4ef4-4031-b0ef-35882a0d5388"
+
+      - id: 15
+        name: "M2Pro MacBook Pro Time Machine"
+        path: "/mnt/MassStorage/Helios/TimeMachines/M2ProMacBookPro"
+        pool: "MassStorage"
+        dataset: "Helios/TimeMachines/M2ProMacBookPro"
+        purpose: "TIMEMACHINE"
+        enabled: true
+        browsable: true
+        guestok: false
+        timemachine: true
+        vuid: "9fb9bec4-4a76-469f-80d3-0eb948a9ec71"
+
+  tasks:
+    - name: Get current SMB shares from TrueNAS
+      uri:
+        url: "{{ truenas_api_url }}/api/v2.0/sharing/smb"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ truenas_api_key }}"
+        validate_certs: "{{ truenas_verify_ssl }}"
+        return_content: true
+      register: smb_shares_response
+      delegate_to: localhost
+
+    - name: Display current SMB shares
+      debug:
+        msg: "Found {{ smb_shares_response.json | length }} SMB share(s)"
+
+    - name: Show share details
+      debug:
+        msg:
+          - "Share: {{ item.name }}"
+          - "Path: {{ item.path }}"
+          - "Enabled: {{ item.enabled }}"
+          - "Time Machine: {{ item.timemachine }}"
+      loop: "{{ smb_shares_response.json }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    # Example: Create a new SMB share (disabled by default)
+    - name: Create new SMB share (example - disabled)
+      uri:
+        url: "{{ truenas_api_url }}/api/v2.0/sharing/smb"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ truenas_api_key }}"
+          Content-Type: "application/json"
+        body_format: json
+        body:
+          path: "/mnt/FastStorage/NewShare"
+          name: "NewShare"
+          comment: "Created by Ansible"
+          enabled: true
+          browsable: true
+          guestok: false
+        validate_certs: "{{ truenas_verify_ssl }}"
+        status_code: [200, 201, 409]
+      register: new_share_result
+      delegate_to: localhost
+      when: false # Set to 'true' to enable creation
+
+    # Example: Update an existing SMB share
+    - name: Update SMB share (example - disabled)
+      uri:
+        url: "{{ truenas_api_url }}/api/v2.0/sharing/smb/id/{{ item.id }}"
+        method: PUT
+        headers:
+          Authorization: "Bearer {{ truenas_api_key }}"
+          Content-Type: "application/json"
+        body_format: json
+        body:
+          comment: "Updated by Ansible"
+        validate_certs: "{{ truenas_verify_ssl }}"
+        status_code: [200, 201]
+      loop: "{{ current_smb_shares }}"
+      loop_control:
+        label: "{{ item.name }}"
+      delegate_to: localhost
+      when: false # Set to 'true' to enable updates

@@ -1,0 +1,95 @@
+---
+# Manage TrueNAS Scale Virtualization Instances (Containers/VMs)
+
+- name: Query TrueNAS Virtualization Instances
+  hosts: truenas
+  gather_facts: false
+
+  tasks:
+    - name: Get all virtualization instances
+      uri:
+        url: "{{ truenas_api_url }}/api/v2.0/virt/instance"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ truenas_api_key }}"
+        validate_certs: "{{ truenas_verify_ssl }}"
+        return_content: true
+      register: instances_response
+      delegate_to: localhost
+
+    - name: Display instances summary
+      debug:
+        msg:
+          - "======================================"
+          - "TrueNAS Virtualization Instances"
+          - "======================================"
+          - "Total Instances: {{ instances_response.json | length }}"
+          - "Containers: {{ instances_response.json | selectattr('type', 'equalto', 'CONTAINER') | list | length }}"
+          - "VMs: {{ instances_response.json | selectattr('type', 'equalto', 'VM') | list | length }}"
+          - ""
+
+    - name: List each instance with details
+      debug:
+        msg:
+          - "{{ ansible_loop.index }}. {{ item.name }} ({{ item.type }})"
+          - "   Status: {{ item.status }}"
+          - "   Storage Pool: {{ item.storage_pool }}"
+          - "   IP Address: {{ item.aliases[3].address if item.aliases | length > 3 else 'N/A' }}"
+          - "   OS: {{ item.image.os }} {{ item.image.release }}"
+          - "   Autostart: {{ item.autostart }}"
+      loop: "{{ instances_response.json }}"
+      loop_control:
+        extended: true
+        label: "{{ item.name }}"
+
+    - name: Display instance network information
+      debug:
+        msg:
+          - "{{ item.name }} Network Configuration:"
+          - "  IPv4 Addresses: {{ item.aliases | selectattr('type', 'equalto', 'INET') | map(attribute='address') | list }}"
+          - "  IPv6 Addresses: {{ item.aliases | selectattr('type', 'equalto', 'INET6') | map(attribute='address') | list }}"
+      loop: "{{ instances_response.json }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    # Example: Start an instance (disabled by default)
+    - name: Start instance (example - disabled)
+      uri:
+        url: "{{ truenas_api_url }}/api/v2.0/virt/instance/id/{{ item }}/start"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ truenas_api_key }}"
+        validate_certs: "{{ truenas_verify_ssl }}"
+        status_code: [200, 201]
+      loop:
+        - example_instance_name
+      delegate_to: localhost
+      when: false # Set to 'true' to enable
+
+    # Example: Stop instance (disabled by default)
+    - name: Stop instance (example - disabled)
+      uri:
+        url: "{{ truenas_api_url }}/api/v2.0/virt/instance/id/{{ item }}/stop"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ truenas_api_key }}"
+        validate_certs: "{{ truenas_verify_ssl }}"
+        status_code: [200, 201]
+      loop:
+        - example_instance_name
+      delegate_to: localhost
+      when: false # Set to 'true' to enable
+
+    # Example: Restart instance (disabled by default)
+    - name: Restart instance (example - disabled)
+      uri:
+        url: "{{ truenas_api_url }}/api/v2.0/virt/instance/id/{{ item }}/restart"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ truenas_api_key }}"
+        validate_certs: "{{ truenas_verify_ssl }}"
+        status_code: [200, 201]
+      loop:
+        - example_instance_name
+      delegate_to: localhost
+      when: false # Set to 'true' to enable

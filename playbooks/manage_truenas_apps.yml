@@ -1,0 +1,142 @@
+---
+# Query and manage TrueNAS Scale Apps
+# Based on actual apps running on truenas.rollet.family
+
+- name: Query TrueNAS Apps
+  hosts: truenas
+  gather_facts: false
+
+  vars:
+    # Current apps on the system (as of 2026-02-11)
+    known_apps:
+      # Media Management
+      - plex
+      - tautulli
+      - overseerr
+      - navidrome
+
+      # Media Acquisition (*arr stack)
+      - radarr
+      - sonarr
+      - lidarr
+      - readarr
+      - prowlarr
+      - huntarr
+
+      # Download Clients
+      - sabnzbd
+      - metube
+
+      # Media Processing
+      - tdarr
+
+      # Utilities
+      - syncthing
+      - rust-desk
+      - n8n
+      - open-speed-test
+
+      # Books/Reading
+      - calibre
+      - calibre-web
+
+  tasks:
+    - name: Get all installed apps
+      uri:
+        url: "{{ truenas_api_url }}/api/v2.0/app"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ truenas_api_key }}"
+        validate_certs: "{{ truenas_verify_ssl }}"
+        return_content: true
+      register: apps_response
+      delegate_to: localhost
+
+    - name: Display apps summary
+      debug:
+        msg:
+          - "======================================"
+          - "TrueNAS Apps ({{ apps_response.json | length }} total)"
+          - "======================================"
+
+    - name: List all apps with status
+      debug:
+        msg:
+          - "{{ loop_index + 1 }}. {{ item.name }}"
+          - "   State: {{ item.state }}"
+          - "   Version: {{ item.version }}"
+          - "   App Version: {{ item.human_version | default('N/A') }}"
+      loop: "{{ apps_response.json }}"
+      loop_control:
+        index_var: loop_index
+        label: "{{ item.name }}"
+
+    - name: Count apps by state
+      set_fact:
+        running_apps: "{{ apps_response.json | selectattr('state', 'equalto', 'RUNNING') | list }}"
+        stopped_apps: "{{ apps_response.json | selectattr('state', 'equalto', 'STOPPED') | list }}"
+
+    - name: Display app state summary
+      debug:
+        msg:
+          - "Running: {{ running_apps | length }}"
+          - "Stopped: {{ stopped_apps | length }}"
+
+    # Example: Get details for a specific app
+    - name: Get Plex app details
+      uri:
+        url: "{{ truenas_api_url }}/api/v2.0/app/id/plex"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ truenas_api_key }}"
+        validate_certs: "{{ truenas_verify_ssl }}"
+      register: plex_details
+      delegate_to: localhost
+      ignore_errors: true
+
+    - name: Display Plex details
+      debug:
+        msg:
+          - "Plex Status: {{ plex_details.json.state | default('N/A') }}"
+          - "Plex Version: {{ plex_details.json.version | default('N/A') }}"
+      when: plex_details is succeeded
+
+    # Example: Start/Stop an app (disabled by default)
+    - name: Start an app (example - disabled)
+      uri:
+        url: "{{ truenas_api_url }}/api/v2.0/app/id/{{ item }}/start"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ truenas_api_key }}"
+        validate_certs: "{{ truenas_verify_ssl }}"
+        status_code: [200, 201]
+      loop:
+        - example_app_name
+      delegate_to: localhost
+      when: false # Set to 'true' to enable
+
+    - name: Stop an app (example - disabled)
+      uri:
+        url: "{{ truenas_api_url }}/api/v2.0/app/id/{{ item }}/stop"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ truenas_api_key }}"
+        validate_certs: "{{ truenas_verify_ssl }}"
+        status_code: [200, 201]
+      loop:
+        - example_app_name
+      delegate_to: localhost
+      when: false # Set to 'true' to enable
+
+    - name: Restart an app (example - disabled)
+      uri:
+        url: "{{ truenas_api_url }}/api/v2.0/app/id/{{ item }}/restart"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ truenas_api_key }}"
+        validate_certs: "{{ truenas_verify_ssl }}"
+        status_code: [200, 201]
+      loop:
+        - example_app_name
+      delegate_to: localhost
+      when: false # Set to 'true' to enable

@@ -1,0 +1,124 @@
+---
+# Complete TrueNAS Overview Playbook
+# Shows all system information, storage, shares, and apps
+
+- name: TrueNAS Complete Overview
+  hosts: truenas
+  gather_facts: false
+
+  tasks:
+    - name: Get system information
+      uri:
+        url: "{{ truenas_api_url }}/api/v2.0/system/info"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ truenas_api_key }}"
+        validate_certs: "{{ truenas_verify_ssl }}"
+      register: system_info
+      delegate_to: localhost
+
+    - name: Get storage pools
+      uri:
+        url: "{{ truenas_api_url }}/api/v2.0/pool"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ truenas_api_key }}"
+        validate_certs: "{{ truenas_verify_ssl }}"
+      register: pools
+      delegate_to: localhost
+
+    - name: Get SMB shares
+      uri:
+        url: "{{ truenas_api_url }}/api/v2.0/sharing/smb"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ truenas_api_key }}"
+        validate_certs: "{{ truenas_verify_ssl }}"
+      register: smb_shares
+      delegate_to: localhost
+
+    - name: Get apps
+      uri:
+        url: "{{ truenas_api_url }}/api/v2.0/app"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ truenas_api_key }}"
+        validate_certs: "{{ truenas_verify_ssl }}"
+      register: apps
+      delegate_to: localhost
+
+    - name: Display system information
+      debug:
+        msg:
+          - "╔════════════════════════════════════════════════════════════╗"
+          - "║           TrueNAS Scale System Overview                   ║"
+          - "╚════════════════════════════════════════════════════════════╝"
+          - ""
+          - "SYSTEM INFORMATION"
+          - "  Hostname: {{ system_info.json.hostname }}"
+          - "  Version: {{ system_info.json.version }}"
+          - "  Uptime: {{ system_info.json.uptime }}"
+
+    - name: Display storage pools header
+      debug:
+        msg:
+          - ""
+          - "STORAGE POOLS ({{ pools.json | length }})"
+
+    - name: Display each pool
+      debug:
+        msg:
+          - "  {{ ansible_loop.index }}. {{ item.name }}"
+          - "     Status: {{ item.status }}"
+          - "     Size: {{ (item.size / 1099511627776) | round(2) }} TB"
+          - "     Used: {{ (item.allocated / 1099511627776) | round(2) }} TB"
+          - "     Free: {{ (item.free / 1099511627776) | round(2) }} TB"
+          - "     Health: {{ 'Healthy' if item.healthy else 'Warning' }}"
+      loop: "{{ pools.json }}"
+      loop_control:
+        extended: true
+        label: "{{ item.name }}"
+
+    - name: Display SMB shares header
+      debug:
+        msg:
+          - ""
+          - "SMB SHARES ({{ smb_shares.json | length }})"
+
+    - name: Display each share
+      debug:
+        msg:
+          - "  {{ ansible_loop.index }}. {{ item.name }}"
+          - "     Path: {{ item.path }}"
+          - "     Enabled: {{ item.enabled }}"
+          - "     Time Machine: {{ item.timemachine }}"
+      loop: "{{ smb_shares.json }}"
+      loop_control:
+        extended: true
+        label: "{{ item.name }}"
+
+    - name: Display apps summary
+      debug:
+        msg:
+          - ""
+          - "APPLICATIONS ({{ apps.json | length }})"
+          - "  Running: {{ apps.json | selectattr('state', 'equalto', 'RUNNING') | list | length }}"
+          - "  Stopped: {{ apps.json | selectattr('state', 'equalto', 'STOPPED') | list | length }}"
+          - ""
+
+    - name: List all apps
+      debug:
+        msg: "  {{ ansible_loop.index }}. {{ item.name }} ({{ item.state }})"
+      loop: "{{ apps.json }}"
+      loop_control:
+        extended: true
+        label: "{{ item.name }}"
+
+    - name: Summary statistics
+      debug:
+        msg:
+          - "Summary:"
+          - "  Total Storage: {{ (pools.json | map(attribute='size') | sum / 1099511627776) | round(2) }} TB"
+          - "  Total Used: {{ (pools.json | map(attribute='allocated') | sum / 1099511627776) | round(2) }} TB"
+          - "  SMB Shares: {{ smb_shares.json | length }}"
+          - "  Apps Running: {{ apps.json | selectattr('state', 'equalto', 'RUNNING') | list | length }}"

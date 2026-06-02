@@ -1,0 +1,133 @@
+---
+# Sync AzerothCore Container Configurations
+# This playbook helps capture configuration from the LXC containers.
+#
+# NOTE: This playbook writes output to the local machine running Ansible.
+# When run from AWX, override config_dest_dir via extra vars to a path
+# accessible inside the execution environment container (e.g., /tmp/azerothcore-configs).
+
+- name: Sync AzerothCore Container Configurations
+  hosts: truenas
+  gather_facts: false
+  vars:
+    # Override via AWX extra vars or -e on the CLI
+    config_dest_dir: "{{ lookup('env', 'HOME') }}/azerothcore-configs"
+
+  tasks:
+    - name: Display instructions for manual config capture
+      ansible.builtin.debug:
+        msg: |
+          To capture current container configurations, run these commands on TrueNAS:
+
+          === Production Container (AzerothCore) ===
+          ssh admin@truenas.rollet.family
+          sudo incus exec AzerothCore -- cat /root/azerothcore-wotlk/.env > ~/production.env
+          sudo incus exec AzerothCore -- cat /etc/docker/daemon.json > ~/production-docker-daemon.json
+          exit
+          scp admin@truenas.rollet.family:~/production.env {{ config_dest_dir }}/env.production
+          scp admin@truenas.rollet.family:~/production-docker-daemon.json {{ config_dest_dir }}/
+
+          === Testing Container (testing-azerothcore) ===
+          ssh admin@truenas.rollet.family
+          sudo incus exec testing-azerothcore -- cat /root/azerothcore-wotlk/.env > ~/testing.env
+          sudo incus exec testing-azerothcore -- cat /etc/docker/daemon.json > ~/testing-docker-daemon.json
+          exit
+          scp admin@truenas.rollet.family:~/testing.env {{ config_dest_dir }}/env.testing
+          scp admin@truenas.rollet.family:~/testing-docker-daemon.json {{ config_dest_dir }}/
+      tags: [always]
+
+    - name: Create environment variable templates
+      ansible.builtin.copy:
+        content: |
+          # AzerothCore {{ item.env_name | upper }} Environment Configuration
+          # Copy this to .env in the azerothcore-wotlk repo inside the {{ item.container_name }} container
+          # Location: /root/azerothcore-wotlk/.env
+
+          ENV_NAME={{ item.env_name }}
+
+          WORLDSERVER_PORT={{ item.worldserver_port }}
+          SOAP_PORT={{ item.soap_port }}
+          AUTHSERVER_PORT={{ item.authserver_port }}
+
+          CONTAINER_PREFIX={{ item.container_prefix }}
+
+          NUMA_NODE={{ item.numa_node }}
+          CPUSET_CPUS={{ item.cpuset_cpus }}
+
+          REALM_NAME={{ item.realm_name }}
+          REALM_ADDRESS={{ item.realm_address }}
+
+          DB_HOST={{ item.container_prefix }}-database
+          DB_PORT=3306
+          DB_USER=root
+          DB_PASSWORD=password
+          AUTH_DB_NAME=acore_auth
+          WORLD_DB_NAME=acore_world
+          CHARACTERS_DB_NAME=acore_characters
+
+          MAP_UPDATE_THREADS=100
+          THREAD_POOL_SIZE=120
+
+          BOT_UPDATE_INTERVAL=20
+          BOT_REACT_DELAY=500
+          BOT_SIGHT_DISTANCE=75.0
+          BOT_REACT_DISTANCE=150.0
+
+          ENABLE_DB_UPDATES=7
+
+          ENABLE_DB_BACKUPS={{ item.enable_backups }}
+          ENABLE_DB_RESTORES={{ item.enable_restores }}
+          BACKUP_SOURCE_HOST={{ item.backup_source_host | default('') }}
+
+          DATABASE_CPU_LIMIT=20
+          DATABASE_CPU_RESERVATION=8
+          DATABASE_MEMORY_LIMIT=64G
+          DATABASE_MEMORY_RESERVATION=32G
+          DATABASE_SHM_SIZE=4gb
+
+          AUTHSERVER_CPU_LIMIT=4
+          AUTHSERVER_CPU_RESERVATION=1
+          AUTHSERVER_MEMORY_LIMIT=2G
+          AUTHSERVER_MEMORY_RESERVATION=512M
+          AUTHSERVER_SHM_SIZE=256mb
+        dest: "{{ config_dest_dir }}/env.{{ item.env_name }}.template"
+        mode: "0644"
+      delegate_to: localhost
+      loop:
+        - env_name: production
+          container_name: AzerothCore
+          worldserver_port: 8585
+          soap_port: 7878
+          authserver_port: 3724
+          container_prefix: ac
+          numa_node: 1
+          cpuset_cpus: "1,3,5,7,9,11,13,15,17,19,21,23,25,27,29,31,33,35,37,39"
+          realm_name: "AzerothCore Production"
+          realm_address: "azerothcore.rollet.family"
+          enable_backups: "true"
+          enable_restores: "false"
+        - env_name: testing
+          container_name: testing-azerothcore
+          worldserver_port: 8085
+          soap_port: 7979
+          authserver_port: 3725
+          container_prefix: testing-ac
+          numa_node: 0
+          cpuset_cpus: "0,2,4,6,8,10,12,14,16,18,20,22,24,26,28,30,32,34,36,38"
+          realm_name: "AzerothCore Testing"
+          realm_address: "testing.azerothcore.rollet.family"
+          enable_backups: "false"
+          enable_restores: "true"
+          backup_source_host: "192.168.144.7"
+      tags: [templates]
+
+    - name: Display next steps
+      ansible.builtin.debug:
+        msg: |
+          Templates created in {{ config_dest_dir }}/
+
+          Next steps:
+          1. Capture actual .env files from containers (see instructions above)
+          2. Review and update the captured files as needed
+          3. Commit to git for version control
+      tags: [always]

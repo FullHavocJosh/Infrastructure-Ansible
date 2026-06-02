@@ -1,0 +1,57 @@
+---
+# Example playbook for managing TrueNAS Scale
+# This demonstrates basic configuration using the TrueNAS API
+
+- name: Configure TrueNAS Scale
+  hosts: truenas
+  gather_facts: false
+
+  tasks:
+    - name: Get TrueNAS system info
+      uri:
+        url: "{{ truenas_api_url }}/api/v2.0/system/info"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ truenas_api_key }}"
+        validate_certs: "{{ truenas_verify_ssl }}"
+        return_content: true
+      register: system_info
+      delegate_to: localhost
+
+    - name: Display system info
+      debug:
+        msg: "TrueNAS Version: {{ system_info.json.version }}, Hostname: {{ system_info.json.hostname }}"
+
+    # Example: Create a dataset
+    - name: Create dataset
+      uri:
+        url: "{{ truenas_api_url }}/api/v2.0/pool/dataset"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ truenas_api_key }}"
+          Content-Type: "application/json"
+        body_format: json
+        body:
+          name: "tank/example_dataset" # Change 'tank' to your pool name
+          type: "FILESYSTEM"
+          comments: "Created by Ansible"
+        validate_certs: "{{ truenas_verify_ssl }}"
+        status_code: [200, 201, 409] # 409 means already exists
+      register: dataset_result
+      delegate_to: localhost
+      when: false # Set to 'true' to enable
+
+    # Example: List all pools
+    - name: Get all storage pools
+      uri:
+        url: "{{ truenas_api_url }}/api/v2.0/pool"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ truenas_api_key }}"
+        validate_certs: "{{ truenas_verify_ssl }}"
+      register: pools
+      delegate_to: localhost
+
+    - name: Display pools
+      debug:
+        msg: "Pools: {{ pools.json | map(attribute='name') | list }}"

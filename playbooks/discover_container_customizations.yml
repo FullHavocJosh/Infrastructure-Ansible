@@ -1,0 +1,147 @@
+---
+# Discover all customizations in AzerothCore LXC containers
+# This playbook helps discover cron jobs, scripts, SSL configs, systemd services, etc.
+#
+# NOTE: This playbook writes output to the local machine running Ansible.
+# When run from AWX, override local_output_dir via extra vars to a path
+# accessible inside the execution environment container (e.g., /tmp/discovered).
+
+- name: Discover AzerothCore Container Customizations
+  hosts: truenas
+  gather_facts: false
+  vars:
+    # Override via AWX extra vars or -e on the CLI
+    local_output_dir: "{{ lookup('env', 'HOME') }}/discovered-container-configs"
+    containers:
+      - name: AzerothCore
+        hostname: production
+      - name: testing-azerothcore
+        hostname: testing
+
+  tasks:
+    - name: Display discovery instructions
+      ansible.builtin.debug:
+        msg: |
+          ========================================
+          Container Customization Discovery
+          ========================================
+
+          This playbook will help you discover all customizations in both containers:
+          - Cron jobs (root and all users)
+          - Custom scripts (/usr/local/bin, /opt, /root, /home)
+          - ACME/Let's Encrypt SSL configurations
+          - Systemd services and timers
+          - Docker configurations
+          - Network settings
+          - Package customizations
+          - Environment variables
+          - Backup scripts
+          - AzerothCore specific files
+
+          MANUAL STEPS REQUIRED (SSH access with sudo needed):
+          ========================================
+
+          1. Run discovery in PRODUCTION container:
+             ssh admin@truenas.rollet.family
+             sudo incus exec AzerothCore -- bash < ~/discover_customizations.sh
+             sudo incus file pull AzerothCore/tmp/container-discovery-AzerothCore/* ~/container-discovery-production/ -r
+
+          2. Run discovery in TESTING container:
+             sudo incus exec testing-azerothcore -- bash < ~/discover_customizations.sh
+             sudo incus file pull testing-azerothcore/tmp/container-discovery-testing-azerothcore/* ~/container-discovery-testing/ -r
+             exit
+
+          3. Copy results to local machine:
+             mkdir -p {{ local_output_dir }}
+             scp -r admin@truenas.rollet.family:~/container-discovery-production/* {{ local_output_dir }}/production/
+             scp -r admin@truenas.rollet.family:~/container-discovery-testing/* {{ local_output_dir }}/testing/
+
+          4. Review the discovered files:
+             cd {{ local_output_dir }}
+             cat production/SUMMARY.txt
+             cat testing/SUMMARY.txt
+      tags: [always]
+
+    - name: Create local output directory structure
+      delegate_to: localhost
+      ansible.builtin.file:
+        path: "{{ local_output_dir }}/{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - production
+        - testing
+      tags: [prepare]
+
+    - name: Create discovery summary template
+      delegate_to: localhost
+      ansible.builtin.copy:
+        content: |
+          # Container Customization Discovery Results
+
+          ## Production Container (AzerothCore)
+
+          ### Cron Jobs
+          See: `production/crontab-root.txt`
+
+          Key findings:
+          - [ ] TODO: Document cron jobs found
+
+          ### Custom Scripts
+          See: `production/usr-local-bin-scripts.txt`, `production/root-scripts.txt`
+
+          Key findings:
+          - [ ] TODO: Document custom scripts found
+
+          ### SSL/Certificate Management
+          See: `production/acme-sh-config.txt`, `production/certbot-config.txt`
+
+          Key findings:
+          - [ ] TODO: Document SSL setup (acme.sh or certbot?)
+
+          ### Systemd Services
+          See: `production/systemd-services-custom.txt`, `production/systemd-timers.txt`
+
+          Key findings:
+          - [ ] TODO: Document custom systemd services/timers
+
+          ### Backup Scripts
+          See: `production/backup-scripts.txt`
+
+          Key findings:
+          - [ ] TODO: Document backup automation
+
+          ---
+
+          ## Testing Container (testing-azerothcore)
+
+          ### Cron Jobs
+          See: `testing/crontab-root.txt`
+
+          Key findings:
+          - [ ] TODO: Document cron jobs found
+
+          ## Actions Required
+
+          - [ ] Document cron jobs
+          - [ ] Document SSL renewal process
+          - [ ] Verify all backup scripts
+        dest: "{{ local_output_dir }}/FINDINGS.md"
+        mode: "0644"
+      tags: [prepare]
+
+    - name: Display next steps
+      ansible.builtin.debug:
+        msg: |
+          ========================================
+          Next Steps
+          ========================================
+
+          1. Run the manual discovery steps shown above
+
+          2. Review the generated files in:
+             {{ local_output_dir }}/production/
+             {{ local_output_dir }}/testing/
+
+          3. Fill out {{ local_output_dir }}/FINDINGS.md with your discoveries
+      tags: [always]

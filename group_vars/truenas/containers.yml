@@ -1,0 +1,55 @@
+---
+# TrueNAS Virtualization Instances (Containers/VMs)
+# Last synced from live system: 2026-05-14
+
+containers:
+  - name: "AzerothCore"
+    type: "CONTAINER"
+    status: "RUNNING"
+    storage_pool: "FastStorage"
+    ip_address: "192.168.144.7"
+    autostart: true
+    cpu: null
+    memory: null
+    os:
+      type: "Ubuntu"
+      release: "plucky"
+      architecture: "amd64"
+      image_date: "20250706_07:42"
+    purpose: "AzerothCore World of Warcraft server (production)"
+
+  - name: "node-exporter"
+    type: "CONTAINER"
+    status: "RUNNING"
+    storage_pool: "FastStorage"
+    ip_address: "10.86.77.64"
+    autostart: true
+    cpu: "2"
+    memory: 1073741824 # 1 GB
+    os:
+      type: "Alpine"
+      release: "3.23"
+      architecture: "amd64"
+      image_date: "20260511_13:00"
+    purpose: "Prometheus node_exporter for TrueNAS host metrics"
+
+  - name: "testing-azerothcore"
+    type: "CONTAINER"
+    status: "STOPPED"
+    storage_pool: "FastStorage"
+    ip_address: null
+    autostart: false
+    cpu: null
+    memory: null
+    os:
+      type: "Ubuntu"
+      release: "plucky"
+      architecture: "amd64"
+      image_date: "20250715_07:42"
+    purpose: "AzerothCore testing/development instance (not active)"
+
+summary:
+  total_containers: 3
+  total_vms: 0
+  running: 2
+  stopped: 1

@@ -1,0 +1,59 @@
+---
+# Playbook documenting current TrueNAS Scale configuration
+# Based on actual system state as of 2026-02-11
+
+- name: TrueNAS Current State Documentation
+  hosts: truenas
+  gather_facts: false
+
+  vars:
+    # Current Storage Pools
+    pools:
+      - name: "MassStorage"
+        type: "RAIDZ3"
+        size_tb: 47.8
+        allocated_tb: 28.6
+        status: "ONLINE"
+      - name: "FastStorage"
+        type: "MIRROR"
+        size_tb: 1.6
+        allocated_gb: 722
+        status: "ONLINE"
+
+    # Current SMB Shares
+    smb_shares:
+      - name: "Shared"
+        path: "/mnt/FastStorage/Shared"
+        purpose: "DEFAULT_SHARE"
+        enabled: true
+        browsable: true
+        timemachine: false
+      - name: "M1 Mac Mini Time Machine"
+        path: "/mnt/MassStorage/Helios/TimeMachines/M1MacMini"
+        purpose: "ENHANCED_TIMEMACHINE"
+        enabled: true
+        browsable: true
+        timemachine: true
+        path_suffix: "%U"
+      - name: "Media"
+        path: "/mnt/MassStorage/Media"
+        purpose: "DEFAULT_SHARE"
+        enabled: true
+        browsable: true
+        timemachine: false
+      - name: "M2Pro MacBook Pro Time Machine"
+        path: "/mnt/MassStorage/Helios/TimeMachines/M2ProMacBookPro"
+        purpose: "TIMEMACHINE"
+        enabled: true
+        browsable: true
+        timemachine: true
+
+  tasks:
+    - name: Display current configuration summary
+      debug:
+        msg:
+          - "TrueNAS Configuration Summary"
+          - "=============================="
+          - "Pools: {{ pools | length }}"
+          - "SMB Shares: {{ smb_shares | length }}"
+          - "NFS Shares: 0"
