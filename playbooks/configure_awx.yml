@@ -1,0 +1,161 @@
+---
+# Configure AWX — creates all objects (credential types, credentials, project,
+# inventory, job templates) in the AWX database via the AWX API.
+#
+# This playbook ONLY talks to the AWX API. It does not connect to TrueNAS or
+# any other managed device. Creating job templates does not run them.
+#
+# All device-targeting templates are created with ask_limit_on_launch: true —
+# AWX will prompt to confirm the target host/group before every run.
+#
+# Secrets are read from environment variables injected by Doppler:
+#   AWX_ADMIN_PASSWORD      — Doppler key: AWX_ADMIN_PASSWORD
+#   TRUENAS_ANSIBLE_API_KEY — Doppler key: TRUENAS_ANSIBLE_API_KEY
+#
+# ── Bootstrap (first run, before AWX is configured) ───────────────────────
+# Requires the Doppler CLI and membership of the project that holds
+# AWX_ADMIN_PASSWORD and TRUENAS_API_KEY. Adjust --project/--config as needed.
+#
+#   doppler run --project infrastructure --config prd -- \
+#     ansible-playbook playbooks/configure_awx.yml
+#
+# ── Subsequent runs via AWX ────────────────────────────────────────────────
+# After bootstrap, attach an "Ansible Automation Platform" credential to the
+# "AWX - Configure" job template (Administration → Tokens → create a personal
+# access token, then create a credential of type "Ansible Automation Platform"
+# using that token and attach it to the template).
+
+- name: Configure AWX
+  hosts: localhost
+  gather_facts: false
+
+  module_defaults:
+    group/awx.awx.controller:
+      controller_host: "https://awx.rollet.family"
+      controller_username: "admin"
+      # AWX_ADMIN_PASSWORD injected by Doppler; CONTROLLER_PASSWORD injected by
+      # the "Ansible Automation Platform" credential on subsequent AWX-managed runs.
+      controller_password: "{{ lookup('env', 'AWX_ADMIN_PASSWORD') | default(omit) }}"
+      controller_oauthtoken: "{{ lookup('env', 'CONTROLLER_OAUTH_TOKEN') | default(omit) }}"
+      validate_certs: true
+
+  vars:
+    awx_org: "Default"
+    awx_project_name: "Infrastructure-Ansible"
+    awx_project_url: "https://github.com/fullhavocjosh/Infrastructure-Ansible.git"
+    awx_inventory_name: "Production"
+    # TRUENAS_ANSIBLE_API_KEY injected by Doppler on bootstrap; on AWX-managed
+    # runs the "TrueNAS API Key" credential is attached to the template instead.
+    truenas_api_key: "{{ lookup('env', 'TRUENAS_ANSIBLE_API_KEY') }}"
+
+    truenas_job_templates:
+      - name: "TrueNAS - Overview"
+        playbook: "playbooks/overview.yml"
+      - name: "TrueNAS - Query System Info"
+        playbook: "playbooks/query_truenas_info.yml"
+      - name: "TrueNAS - Manage Apps"
+        playbook: "playbooks/manage_truenas_apps.yml"
+      - name: "TrueNAS - Manage SMB Shares"
+        playbook: "playbooks/manage_smb_shares_actual.yml"
+      - name: "TrueNAS - Manage Virtualization"
+        playbook: "playbooks/manage_virtualization.yml"
+
+  tasks:
+
+    # ── Credential Types ────────────────────────────────────────────────────
+
+    - name: Ensure TrueNAS API Key credential type
+      awx.awx.credential_type:
+        name: "TrueNAS API Key"
+        kind: cloud
+        inputs:
+          fields:
+            - id: truenas_api_key
+              type: string
+              label: TrueNAS API Key
+              secret: true
+          required:
+            - truenas_api_key
+        injectors:
+          env:
+            # !unsafe prevents Ansible from evaluating this as a Jinja2
+            # expression — it must reach the AWX API as a literal string.
+            TRUENAS_ANSIBLE_API_KEY: !unsafe "{{ truenas_api_key }}"
+        state: present
+
+    # ── Credentials ─────────────────────────────────────────────────────────
+
+    - name: Ensure TrueNAS Production credential
+      awx.awx.credential:
+        name: "TrueNAS Production"
+        organization: "{{ awx_org }}"
+        credential_type: "TrueNAS API Key"
+        inputs:
+          truenas_api_key: "{{ truenas_api_key }}"
+        state: present
+      no_log: true
+      when: truenas_api_key | length > 0
+
+    # ── Project ─────────────────────────────────────────────────────────────
+
+    - name: Ensure Infrastructure-Ansible project
+      awx.awx.project:
+        name: "{{ awx_project_name }}"
+        organization: "{{ awx_org }}"
+        scm_type: git
+        scm_url: "{{ awx_project_url }}"
+        scm_branch: main
+        scm_update_on_launch: true
+        state: present
+
+    # ── Inventory ───────────────────────────────────────────────────────────
+
+    - name: Ensure Production inventory
+      awx.awx.inventory:
+        name: "{{ awx_inventory_name }}"
+        organization: "{{ awx_org }}"
+        state: present
+
+    - name: Ensure Production inventory source
+      awx.awx.inventory_source:
+        name: "Infrastructure-Ansible"
+        inventory: "{{ awx_inventory_name }}"
+        source: scm
+        source_project: "{{ awx_project_name }}"
+        source_path: "inventories/production/hosts.yml"
+        update_on_launch: true
+        state: present
+
+    # ── Job Templates ────────────────────────────────────────────────────────
+
+    - name: Ensure TrueNAS job templates
+      awx.awx.job_template:
+        name: "{{ item.name }}"
+        organization: "{{ awx_org }}"
+        job_type: run
+        inventory: "{{ awx_inventory_name }}"
+        project: "{{ awx_project_name }}"
+        playbook: "{{ item.playbook }}"
+        limit: "truenas"
+        credentials:
+          - "TrueNAS Production"
+        verbosity: 1
+        # Always prompt to confirm the target before running — safety guard
+        # while playbooks are being vetted. Remove once satisfied.
+        ask_limit_on_launch: true
+        state: present
+      loop: "{{ truenas_job_templates }}"
+
+    - name: Ensure AWX - Configure job template
+      awx.awx.job_template:
+        name: "AWX - Configure"
+        organization: "{{ awx_org }}"
+        job_type: run
+        inventory: "{{ awx_inventory_name }}"
+        project: "{{ awx_project_name }}"
+        playbook: "playbooks/configure_awx.yml"
+        verbosity: 1
+        # Prompt for credential on launch — the AWX "Ansible Automation Platform"
+        # credential must be attached here after the bootstrap run.
+        ask_credential_on_launch: true
+        state: present
