@@ -10,20 +10,15 @@
 #
 # Secrets are read from environment variables injected by Doppler:
 #   AWX_ADMIN_PASSWORD      — Doppler key: AWX_ADMIN_PASSWORD
+#   AWX_ADMIN_PAT           — Doppler key: AWX_ADMIN_PAT (personal access token)
 #   TRUENAS_ANSIBLE_API_KEY — Doppler key: TRUENAS_ANSIBLE_API_KEY
 #
 # ── Bootstrap (first run, before AWX is configured) ───────────────────────
-# Requires the Doppler CLI and membership of the project that holds
-# AWX_ADMIN_PASSWORD and TRUENAS_API_KEY. Adjust --project/--config as needed.
-#
-#   doppler run --project infrastructure --config prd -- \
+#   doppler run --project matrix-homelab --config hetzner -- \
 #     ansible-playbook playbooks/configure_awx.yml
 #
 # ── Subsequent runs via AWX ────────────────────────────────────────────────
-# After bootstrap, attach an "Ansible Automation Platform" credential to the
-# "AWX - Configure" job template (Administration → Tokens → create a personal
-# access token, then create a credential of type "Ansible Automation Platform"
-# using that token and attach it to the template).
+# Run the "AWX - Configure" job template from the AWX UI — no CLI needed.
 
 - name: Configure AWX
   hosts: localhost
@@ -47,6 +42,7 @@
     # TRUENAS_ANSIBLE_API_KEY injected by Doppler on bootstrap; on AWX-managed
     # runs the "TrueNAS API Key" credential is attached to the template instead.
     truenas_api_key: "{{ lookup('env', 'TRUENAS_ANSIBLE_API_KEY') }}"
+    awx_admin_pat: "{{ lookup('env', 'AWX_ADMIN_PAT') }}"
 
     truenas_job_templates:
       - name: "TrueNAS - Overview"
@@ -84,6 +80,19 @@
         state: present
 
     # ── Credentials ─────────────────────────────────────────────────────────
+
+    - name: Ensure AWX Admin PAT credential
+      awx.awx.credential:
+        name: "AWX Admin PAT"
+        organization: "{{ awx_org }}"
+        credential_type: "Red Hat Ansible Automation Platform"
+        inputs:
+          host: "https://awx.rollet.family"
+          oauth_token: "{{ awx_admin_pat }}"
+          verify_ssl: true
+        state: present
+      no_log: true
+      when: awx_admin_pat | length > 0
 
     - name: Ensure TrueNAS Production credential
       awx.awx.credential:
@@ -156,8 +165,7 @@
         inventory: "{{ awx_inventory_name }}"
         project: "{{ awx_project_name }}"
         playbook: "playbooks/configure_awx.yml"
+        credentials:
+          - "AWX Admin PAT"
         verbosity: 1
-        # Prompt for credential on launch — the AWX "Ansible Automation Platform"
-        # credential must be attached here after the bootstrap run.
-        ask_credential_on_launch: true
         state: present
