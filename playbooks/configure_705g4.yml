@@ -35,6 +35,9 @@
       - xserver-xorg-video-amdgpu
     rocm_repo_file: /etc/apt/sources.list.d/rocm.list
     rocm_keyring: /etc/apt/keyrings/rocm.gpg
+    node_exporter_version: "1.9.1"
+    node_exporter_arch: "amd64"
+    node_exporter_binary: "/usr/local/bin/node_exporter"
 
   tasks:
     - name: Gather package facts
@@ -111,3 +114,90 @@
           - "Memory:    {{ ansible_memtotal_mb }} MB"
           - "Uptime:    {{ (ansible_uptime_seconds / 3600) | int }} hours"
           - "Role:      GPU compute server (AMD ROCm 6.3)"
+
+    # ── node_exporter installation and verification ──────────────────────────
+    - name: Check if node_exporter binary exists
+      ansible.builtin.stat:
+        path: "{{ node_exporter_binary }}"
+      register: node_exporter_bin
+
+    - name: Download node_exporter tarball
+      ansible.builtin.get_url:
+        url: "https://github.com/prometheus/node_exporter/releases/download/v{{ node_exporter_version }}/node_exporter-{{ node_exporter_version }}.linux-{{ node_exporter_arch }}.tar.gz"
+        dest: "/tmp/node_exporter-{{ node_exporter_version }}.tar.gz"
+        mode: "0644"
+      when: not node_exporter_bin.stat.exists
+
+    - name: Extract node_exporter
+      ansible.builtin.unarchive:
+        src: "/tmp/node_exporter-{{ node_exporter_version }}.tar.gz"
+        dest: /tmp/
+        remote_src: true
+      when: not node_exporter_bin.stat.exists
+
+    - name: Install node_exporter binary
+      ansible.builtin.copy:
+        src: "/tmp/node_exporter-{{ node_exporter_version }}.linux-{{ node_exporter_arch }}/node_exporter"
+        dest: "{{ node_exporter_binary }}"
+        mode: "0755"
+        remote_src: true
+      when: not node_exporter_bin.stat.exists
+      notify: Restart node_exporter
+
+    - name: Deploy node_exporter systemd unit
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/node_exporter.service
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Prometheus Node Exporter
+          After=network.target
+
+          [Service]
+          User=nobody
+          ExecStart=/usr/local/bin/node_exporter \
+            --web.listen-address=:9100
+          Restart=always
+          RestartSec=5
+
+          [Install]
+          WantedBy=multi-user.target
+      notify:
+        - Reload systemd
+        - Restart node_exporter
+
+    - name: Enable and start node_exporter
+      ansible.builtin.systemd:
+        name: node_exporter
+        enabled: true
+        state: started
+        daemon_reload: true
+
+    - name: Allow node_exporter from home LAN (Prometheus scrapes via Tailscale)
+      community.general.ufw:
+        rule: allow
+        port: "9100"
+        proto: tcp
+        src: "192.168.144.0/24"
+
+    - name: Verify node_exporter is responding
+      ansible.builtin.uri:
+        url: "http://localhost:9100/metrics"
+        return_content: false
+        status_code: 200
+      register: node_exporter_health
+      failed_when: node_exporter_health.status != 200
+
+    - name: Report node_exporter status
+      ansible.builtin.debug:
+        msg: "node_exporter v{{ node_exporter_version }} running on :9100"
+
+  handlers:
+    - name: Reload systemd
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+    - name: Restart node_exporter
+      ansible.builtin.systemd:
+        name: node_exporter
+        state: restarted
