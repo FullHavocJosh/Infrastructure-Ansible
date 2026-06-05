@@ -66,6 +66,10 @@
         playbook: "playbooks/configure_705g4.yml"
         limit: "705g4"
 
+    local_k3s_job_templates:
+      - name: "Local K3s - Bootstrap"
+        playbook: "playbooks/bootstrap_local_k3s.yml"
+
   tasks:
 
     # ── Credential Types ────────────────────────────────────────────────────
@@ -194,6 +198,21 @@
         ask_limit_on_launch: true
         state: present
       loop: "{{ ubuntu_server_job_templates }}"
+
+    - name: Ensure Local K3s job templates
+      awx.awx.job_template:
+        name: "{{ item.name }}"
+        organization: "{{ awx_org }}"
+        job_type: run
+        inventory: "{{ awx_inventory_name }}"
+        project: "{{ awx_project_name }}"
+        playbook: "{{ item.playbook }}"
+        credentials:
+          - "TrueNAS Production"
+          - "ubuntu_servers SSH"
+        verbosity: 1
+        state: present
+      loop: "{{ local_k3s_job_templates }}"
 
     - name: Ensure AWX - Configure job template
       awx.awx.job_template:

@@ -161,18 +161,22 @@
         proto: udp
         src: "192.168.144.0/24"
 
-    - name: Fetch kubeconfig
-      ansible.builtin.fetch:
+    - name: Read kubeconfig
+      ansible.builtin.slurp:
         src: /etc/rancher/k3s/k3s.yaml
-        dest: "{{ playbook_dir }}/../../local-k3s/kubeconfig"
-        flat: true
+      register: kubeconfig_raw
 
     - name: Report master ready
       ansible.builtin.debug:
         msg:
           - "K3s master ready: {{ k3s_master_ip }}:6443"
-          - "Kubeconfig saved to: local-k3s/kubeconfig"
-          - "Fix server URL: sed -i 's|127.0.0.1|192.168.144.25|g' local-k3s/kubeconfig"
+          - ""
+          - "Copy the kubeconfig below, save to ~/home-infrastructure/local-k3s/kubeconfig,"
+          - "then run: sed -i '' 's|127.0.0.1|192.168.144.25|g' ~/home-infrastructure/local-k3s/kubeconfig"
+          - ""
+          - "--- kubeconfig ---"
+          - "{{ kubeconfig_raw.content | b64decode }}"
+          - "-----------------"
 
 - name: Install K3s on workers (k3sworkervm0, k3sworkervm1)
   hosts: local_k3s_workers
