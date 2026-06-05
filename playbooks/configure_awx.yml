@@ -11,9 +11,11 @@
 # Secrets are read from environment variables injected by Doppler:
 #   AWX_ADMIN_PASSWORD        — Doppler key: AWX_ADMIN_PASSWORD
 #   AWX_ADMIN_PAT             — Doppler key: AWX_ADMIN_PAT (personal access token)
-#   TRUENAS_ANSIBLE_API_KEY   — Doppler key: TRUENAS_ANSIBLE_API_KEY
 #   LINUX_SSH_USER            — Doppler key: LINUX_SSH_USER
-#   LINUX_SSH_PASS        — Doppler key: LINUX_SSH_PASS
+#   LINUX_SSH_PASS            — Doppler key: LINUX_SSH_PASS
+#
+# TrueNAS credential type and job templates are commented out —
+# AWX must not make changes to TrueNAS.
 #
 # ── Bootstrap (first run, before AWX is configured) ───────────────────────
 #   doppler run --project FullHavocJosh --config root_hetzner-cluster -- \
@@ -41,24 +43,21 @@
     awx_project_name: "Infrastructure-Ansible"
     awx_project_url: "https://github.com/fullhavocjosh/Infrastructure-Ansible.git"
     awx_inventory_name: "Production"
-    # TRUENAS_ANSIBLE_API_KEY injected by Doppler on bootstrap; on AWX-managed
-    # runs the "TrueNAS API Key" credential is attached to the template instead.
-    truenas_api_key: "{{ lookup('env', 'TRUENAS_ANSIBLE_API_KEY') }}"
     awx_admin_pat: "{{ lookup('env', 'AWX_ADMIN_PAT') }}"
     linux_ssh_user: "{{ lookup('env', 'LINUX_SSH_USER') }}"
     linux_ssh_pass: "{{ lookup('env', 'LINUX_SSH_PASS') }}"
 
-    truenas_job_templates:
-      - name: "TrueNAS - Overview"
-        playbook: "playbooks/overview.yml"
-      - name: "TrueNAS - Query System Info"
-        playbook: "playbooks/query_truenas_info.yml"
-      - name: "TrueNAS - Manage Apps"
-        playbook: "playbooks/manage_truenas_apps.yml"
-      - name: "TrueNAS - Manage SMB Shares"
-        playbook: "playbooks/manage_smb_shares_actual.yml"
-      - name: "TrueNAS - Manage Virtualization"
-        playbook: "playbooks/manage_virtualization.yml"
+    # truenas_job_templates:  # Disabled — AWX must not make changes to TrueNAS
+    #   - name: "TrueNAS - Overview"
+    #     playbook: "playbooks/overview.yml"
+    #   - name: "TrueNAS - Query System Info"
+    #     playbook: "playbooks/query_truenas_info.yml"
+    #   - name: "TrueNAS - Manage Apps"
+    #     playbook: "playbooks/manage_truenas_apps.yml"
+    #   - name: "TrueNAS - Manage SMB Shares"
+    #     playbook: "playbooks/manage_smb_shares_actual.yml"
+    #   - name: "TrueNAS - Manage Virtualization"
+    #     playbook: "playbooks/manage_virtualization.yml"
 
     ubuntu_server_job_templates:
       - name: "6rx26x1 - Verify State"
@@ -76,24 +75,23 @@
 
     # ── Credential Types ────────────────────────────────────────────────────
 
-    - name: Ensure TrueNAS API Key credential type
-      awx.awx.credential_type:
-        name: "TrueNAS API Key"
-        kind: cloud
-        inputs:
-          fields:
-            - id: truenas_api_key
-              type: string
-              label: TrueNAS API Key
-              secret: true
-          required:
-            - truenas_api_key
-        injectors:
-          env:
-            # !unsafe prevents Ansible from evaluating this as a Jinja2
-            # expression — it must reach the AWX API as a literal string.
-            TRUENAS_ANSIBLE_API_KEY: !unsafe "{{ truenas_api_key }}"
-        state: present
+    # Disabled — AWX must not make changes to TrueNAS
+    # - name: Ensure TrueNAS API Key credential type
+    #   awx.awx.credential_type:
+    #     name: "TrueNAS API Key"
+    #     kind: cloud
+    #     inputs:
+    #       fields:
+    #         - id: truenas_api_key
+    #           type: string
+    #           label: TrueNAS API Key
+    #           secret: true
+    #       required:
+    #         - truenas_api_key
+    #     injectors:
+    #       env:
+    #         TRUENAS_ANSIBLE_API_KEY: !unsafe "{{ truenas_api_key }}"
+    #     state: present
 
     # ── Credentials ─────────────────────────────────────────────────────────
 
@@ -110,16 +108,16 @@
       no_log: true
       when: awx_admin_pat | length > 0
 
-    - name: Ensure TrueNAS Production credential
-      awx.awx.credential:
-        name: "TrueNAS Production"
-        organization: "{{ awx_org }}"
-        credential_type: "TrueNAS API Key"
-        inputs:
-          truenas_api_key: "{{ truenas_api_key }}"
-        state: present
-      no_log: true
-      when: truenas_api_key | length > 0
+    # Disabled — AWX must not make changes to TrueNAS
+    # - name: Ensure TrueNAS Production credential
+    #   awx.awx.credential:
+    #     name: "TrueNAS Production"
+    #     organization: "{{ awx_org }}"
+    #     credential_type: "TrueNAS API Key"
+    #     inputs:
+    #       truenas_api_key: "{{ truenas_api_key }}"
+    #     state: present
+    #   no_log: true
 
     - name: Ensure ubuntu_servers SSH Machine credential
       awx.awx.credential:
@@ -169,23 +167,11 @@
 
     # ── Job Templates ────────────────────────────────────────────────────────
 
-    - name: Ensure TrueNAS job templates
-      awx.awx.job_template:
-        name: "{{ item.name }}"
-        organization: "{{ awx_org }}"
-        job_type: run
-        inventory: "{{ awx_inventory_name }}"
-        project: "{{ awx_project_name }}"
-        playbook: "{{ item.playbook }}"
-        limit: "truenas"
-        credentials:
-          - "TrueNAS Production"
-        verbosity: 1
-        # Always prompt to confirm the target before running — safety guard
-        # while playbooks are being vetted. Remove once satisfied.
-        ask_limit_on_launch: true
-        state: present
-      loop: "{{ truenas_job_templates }}"
+    # Disabled — AWX must not make changes to TrueNAS
+    # - name: Ensure TrueNAS job templates
+    #   awx.awx.job_template:
+    #     ...
+    #   loop: "{{ truenas_job_templates }}"
 
     - name: Ensure ubuntu_servers job templates
       awx.awx.job_template:
