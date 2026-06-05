@@ -12,7 +12,8 @@
 #   AWX_ADMIN_PASSWORD        — Doppler key: AWX_ADMIN_PASSWORD
 #   AWX_ADMIN_PAT             — Doppler key: AWX_ADMIN_PAT (personal access token)
 #   TRUENAS_ANSIBLE_API_KEY   — Doppler key: TRUENAS_ANSIBLE_API_KEY
-#   TERRAKUBE_SSH_PRIVATE_KEY — Doppler key: TERRAKUBE_SSH_PRIVATE_KEY (reused for AWX→6rx26x1)
+#   LINUX_SSH_USER            — Doppler key: LINUX_SSH_USER
+#   LINUX_SSH_PASS        — Doppler key: LINUX_SSH_PASS
 #
 # ── Bootstrap (first run, before AWX is configured) ───────────────────────
 #   doppler run --project FullHavocJosh --config root_hetzner-cluster -- \
@@ -44,7 +45,8 @@
     # runs the "TrueNAS API Key" credential is attached to the template instead.
     truenas_api_key: "{{ lookup('env', 'TRUENAS_ANSIBLE_API_KEY') }}"
     awx_admin_pat: "{{ lookup('env', 'AWX_ADMIN_PAT') }}"
-    ssh_private_key: "{{ lookup('env', 'TERRAKUBE_SSH_PRIVATE_KEY') }}"
+    linux_ssh_user: "{{ lookup('env', 'LINUX_SSH_USER') }}"
+    linux_ssh_pass: "{{ lookup('env', 'LINUX_SSH_PASS') }}"
 
     truenas_job_templates:
       - name: "TrueNAS - Overview"
@@ -125,11 +127,13 @@
         organization: "{{ awx_org }}"
         credential_type: "Machine"
         inputs:
-          username: "havoc"
-          ssh_key_data: "{{ ssh_private_key }}"
+          username: "{{ linux_ssh_user }}"
+          password: "{{ linux_ssh_pass }}"
+          become_method: sudo
+          become_password: "{{ linux_ssh_pass }}"
         state: present
       no_log: true
-      when: ssh_private_key | length > 0
+      when: linux_ssh_user | length > 0 and linux_ssh_pass | length > 0
 
     # ── Project ─────────────────────────────────────────────────────────────
 
