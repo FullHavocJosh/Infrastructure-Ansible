@@ -1,0 +1,272 @@
+---
+# Bootstrap the local K3s monitoring cluster.
+#
+# Cluster topology:
+#   Master:   6rx26x1 (192.168.144.25) — Dell PowerEdge Ubuntu Server
+#   Worker 0: k3sworkervm0 (192.168.144.10) — TrueNAS VM (Ubuntu, 8 GB RAM)
+#   Worker 1: k3sworkervm1 (192.168.144.11) — TrueNAS VM (Ubuntu, 8 GB RAM)
+#
+# Network CIDRs:
+#   Pod CIDR:     10.144.0.0/16  (144 = home LAN identifier)
+#   Service CIDR: 10.143.0.0/16
+#   Cluster DNS:  10.143.0.10
+#
+# Run from AWX or locally:
+#   ansible-playbook playbooks/bootstrap_local_k3s.yml -i inventories/production/hosts.yml
+#
+# Prerequisites:
+#   - 6rx26x1 must be running and SSH-accessible
+#   - TrueNAS API key available (TRUENAS_ANSIBLE_API_KEY)
+#   - After K3s is up: kubectl apply -k ~/home-infrastructure/local-k3s/monitoring/
+
+- name: Start TrueNAS VMs (k3sworkervm0, k3sworkervm1)
+  hosts: truenas
+  gather_facts: false
+  vars:
+    vms_to_start:
+      - k3sworkervm0
+      - k3sworkervm1
+
+  tasks:
+    - name: Query virtualization instance state
+      ansible.builtin.uri:
+        url: "{{ truenas_api_url }}/api/v2.0/virt/instance/id/{{ item }}"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ truenas_api_key }}"
+        validate_certs: "{{ truenas_verify_ssl }}"
+        return_content: true
+        status_code: [200, 404]
+      loop: "{{ vms_to_start }}"
+      register: vm_states
+      delegate_to: localhost
+
+    - name: Start stopped VMs
+      ansible.builtin.uri:
+        url: "{{ truenas_api_url }}/api/v2.0/virt/instance/id/{{ item.item }}/start"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ truenas_api_key }}"
+        validate_certs: "{{ truenas_verify_ssl }}"
+        status_code: [200, 201]
+      loop: "{{ vm_states.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+      delegate_to: localhost
+      when:
+        - item.status == 200
+        - item.json.status is defined
+        - item.json.status != "RUNNING"
+
+    - name: Wait for VMs to become SSH-accessible
+      ansible.builtin.wait_for:
+        host: "{{ item }}.rollet.family"
+        port: 22
+        delay: 10
+        timeout: 120
+      loop: "{{ vms_to_start }}"
+      delegate_to: localhost
+
+- name: Install K3s on master (6rx26x1)
+  hosts: 6rx26x1
+  gather_facts: true
+  become: true
+  vars:
+    k3s_version: "v1.36.1+k3s1"
+    k3s_master_ip: "192.168.144.25"
+
+  tasks:
+    - name: Check if K3s is already installed
+      ansible.builtin.stat:
+        path: /usr/local/bin/k3s
+      register: k3s_bin
+
+    - name: Check existing K3s version
+      ansible.builtin.command: k3s --version
+      register: k3s_current_version
+      changed_when: false
+      when: k3s_bin.stat.exists
+
+    - name: Uninstall existing K3s if version mismatch
+      ansible.builtin.shell: |
+        if [ -f /usr/local/bin/k3s-uninstall.sh ]; then
+          /usr/local/bin/k3s-uninstall.sh
+        else
+          systemctl stop k3s 2>/dev/null || true
+          rm -f /usr/local/bin/k3s /usr/local/bin/k3s-killall.sh
+          rm -rf /var/lib/rancher/k3s /etc/rancher/k3s
+          systemctl daemon-reload
+        fi
+      when:
+        - k3s_bin.stat.exists
+        - k3s_version not in (k3s_current_version.stdout | default(''))
+
+    - name: Install K3s master
+      ansible.builtin.shell: |
+        curl -sfL https://get.k3s.io | \
+          INSTALL_K3S_VERSION="{{ k3s_version }}" \
+          sh -s - \
+          --cluster-cidr=10.144.0.0/16 \
+          --service-cidr=10.143.0.0/16 \
+          --cluster-dns=10.143.0.10 \
+          --disable=traefik \
+          --disable=servicelb \
+          --node-ip={{ k3s_master_ip }} \
+          --advertise-address={{ k3s_master_ip }} \
+          --write-kubeconfig-mode=644
+      when: not k3s_bin.stat.exists or k3s_version not in (k3s_current_version.stdout | default(''))
+
+    - name: Wait for K3s to be ready
+      ansible.builtin.command: k3s kubectl get nodes
+      register: k3s_nodes
+      retries: 15
+      delay: 10
+      until: k3s_nodes.rc == 0
+      changed_when: false
+
+    - name: Fetch K3s node token
+      ansible.builtin.slurp:
+        src: /var/lib/rancher/k3s/server/node-token
+      register: k3s_token_raw
+
+    - name: Set token fact
+      ansible.builtin.set_fact:
+        k3s_node_token: "{{ k3s_token_raw.content | b64decode | trim }}"
+
+    - name: Allow UFW port 6443 (K3s API) from home LAN
+      community.general.ufw:
+        rule: allow
+        port: "6443"
+        proto: tcp
+        src: "192.168.144.0/24"
+
+    - name: Allow UFW port 10250 (K3s metrics) from home LAN
+      community.general.ufw:
+        rule: allow
+        port: "10250"
+        proto: tcp
+        src: "192.168.144.0/24"
+
+    - name: Allow UFW NodePort range from home LAN
+      community.general.ufw:
+        rule: allow
+        port: "30000:32767"
+        proto: tcp
+        src: "192.168.144.0/24"
+
+    - name: Allow UFW flannel VXLAN from home LAN
+      community.general.ufw:
+        rule: allow
+        port: "8472"
+        proto: udp
+        src: "192.168.144.0/24"
+
+    - name: Fetch kubeconfig
+      ansible.builtin.fetch:
+        src: /etc/rancher/k3s/k3s.yaml
+        dest: "{{ playbook_dir }}/../../local-k3s/kubeconfig"
+        flat: true
+
+    - name: Report master ready
+      ansible.builtin.debug:
+        msg:
+          - "K3s master ready: {{ k3s_master_ip }}:6443"
+          - "Kubeconfig saved to: local-k3s/kubeconfig"
+          - "Fix server URL: sed -i 's|127.0.0.1|192.168.144.25|g' local-k3s/kubeconfig"
+
+- name: Install K3s on workers (k3sworkervm0, k3sworkervm1)
+  hosts: local_k3s_workers
+  gather_facts: true
+  become: true
+  vars:
+    k3s_version: "v1.36.1+k3s1"
+    k3s_master_ip: "192.168.144.25"
+    k3s_node_token: "{{ hostvars['6rx26x1']['k3s_node_token'] }}"
+
+  tasks:
+    - name: Check if K3s is already installed
+      ansible.builtin.stat:
+        path: /usr/local/bin/k3s
+      register: k3s_bin
+
+    - name: Check existing K3s version
+      ansible.builtin.command: k3s --version
+      register: k3s_current_version
+      changed_when: false
+      when: k3s_bin.stat.exists
+
+    - name: Uninstall existing K3s agent if version mismatch
+      ansible.builtin.shell: /usr/local/bin/k3s-agent-uninstall.sh
+      when:
+        - k3s_bin.stat.exists
+        - k3s_version not in (k3s_current_version.stdout | default(''))
+      ignore_errors: true
+
+    - name: Install K3s worker agent
+      ansible.builtin.shell: |
+        curl -sfL https://get.k3s.io | \
+          INSTALL_K3S_VERSION="{{ k3s_version }}" \
+          K3S_URL="https://{{ k3s_master_ip }}:6443" \
+          K3S_TOKEN="{{ k3s_node_token }}" \
+          sh -s -
+      args:
+        creates: /usr/local/bin/k3s
+      when: not k3s_bin.stat.exists or k3s_version not in (k3s_current_version.stdout | default(''))
+
+    - name: Wait for worker to join cluster
+      ansible.builtin.command: >
+        k3s kubectl get node {{ ansible_hostname }} --no-headers
+      register: node_status
+      retries: 15
+      delay: 10
+      until: "'Ready' in node_status.stdout"
+      delegate_to: "{{ k3s_master_ip }}"
+      remote_user: havoc
+      become: true
+      changed_when: false
+      ignore_errors: true
+
+    - name: Report worker status
+      ansible.builtin.debug:
+        msg: "Worker {{ inventory_hostname }} joined cluster"
+
+- name: Post-bootstrap checks
+  hosts: 6rx26x1
+  gather_facts: false
+  become: true
+
+  tasks:
+    - name: List all cluster nodes
+      ansible.builtin.command: k3s kubectl get nodes -o wide
+      register: node_list
+      changed_when: false
+
+    - name: Display cluster nodes
+      ansible.builtin.debug:
+        msg: "{{ node_list.stdout_lines }}"
+
+    - name: Display next steps
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "Local K3s cluster bootstrap complete!"
+          - "========================================"
+          - ""
+          - "Next steps:"
+          - "1. Fix kubeconfig server URL:"
+          - "   sed -i 's|127.0.0.1|192.168.144.25|g' ~/home-infrastructure/local-k3s/kubeconfig"
+          - ""
+          - "2. Test connectivity:"
+          - "   export KUBECONFIG=~/home-infrastructure/local-k3s/kubeconfig"
+          - "   kubectl get nodes"
+          - ""
+          - "3. Deploy monitoring stack:"
+          - "   kubectl apply -k ~/home-infrastructure/local-k3s/monitoring/"
+          - ""
+          - "4. Subscribe to local ntfy:"
+          - "   Open ntfy app → Add server: http://192.168.144.25:30080"
+          - "   Subscribe to topic: local-alerts"
+          - ""
+          - "5. Verify Prometheus targets:"
+          - "   kubectl port-forward -n monitoring svc/prometheus 9090:9090"
+          - "   Open http://localhost:9090/targets"
