@@ -88,7 +88,15 @@
       when: k3s_bin.stat.exists
 
     - name: Uninstall existing K3s if version mismatch
-      ansible.builtin.shell: /usr/local/bin/k3s-uninstall.sh
+      ansible.builtin.shell: |
+        if [ -f /usr/local/bin/k3s-uninstall.sh ]; then
+          /usr/local/bin/k3s-uninstall.sh
+        else
+          systemctl stop k3s 2>/dev/null || true
+          rm -f /usr/local/bin/k3s /usr/local/bin/k3s-killall.sh
+          rm -rf /var/lib/rancher/k3s /etc/rancher/k3s
+          systemctl daemon-reload
+        fi
       when:
         - k3s_bin.stat.exists
         - k3s_version not in (k3s_current_version.stdout | default(''))
@@ -106,8 +114,6 @@
           --node-ip={{ k3s_master_ip }} \
           --advertise-address={{ k3s_master_ip }} \
           --write-kubeconfig-mode=644
-      args:
-        creates: /usr/local/bin/k3s
       when: not k3s_bin.stat.exists or k3s_version not in (k3s_current_version.stdout | default(''))
 
     - name: Wait for K3s to be ready
