@@ -11,8 +11,8 @@
 # Secrets are read from environment variables injected by Doppler:
 #   AWX_ADMIN_PASSWORD        — Doppler key: AWX_ADMIN_PASSWORD
 #   AWX_ADMIN_PAT             — Doppler key: AWX_ADMIN_PAT (personal access token)
-#   LINUX_SSH_USER            — Doppler key: LINUX_SSH_USER
-#   LINUX_SSH_PASS            — Doppler key: LINUX_SSH_PASS
+#   LINUX_SSH_USER            — Doppler key: LINUX_SSH_USER  (first run only; stored in "Linux SSH Vars" AWX credential after that)
+#   LINUX_SSH_PASS            — Doppler key: LINUX_SSH_PASS  (first run only; stored in "Linux SSH Vars" AWX credential after that)
 #
 # TrueNAS credential type and job templates are commented out —
 # AWX must not make changes to TrueNAS.
@@ -93,6 +93,30 @@
     #         TRUENAS_ANSIBLE_API_KEY: !unsafe "{{ truenas_api_key }}"
     #     state: present
 
+    # ── Credential Types ────────────────────────────────────────────────────
+
+    - name: Ensure Linux SSH Vars credential type
+      awx.awx.credential_type:
+        name: "Linux SSH Vars"
+        kind: cloud
+        inputs:
+          fields:
+            - id: linux_ssh_user
+              type: string
+              label: Linux SSH Username
+            - id: linux_ssh_pass
+              type: string
+              label: Linux SSH Password
+              secret: true
+          required:
+            - linux_ssh_user
+            - linux_ssh_pass
+        injectors:
+          env:
+            LINUX_SSH_USER: !unsafe "{{ linux_ssh_user }}"
+            LINUX_SSH_PASS: !unsafe "{{ linux_ssh_pass }}"
+        state: present
+
     # ── Credentials ─────────────────────────────────────────────────────────
 
     - name: Ensure AWX Admin PAT credential
@@ -107,6 +131,18 @@
         state: present
       no_log: true
       when: awx_admin_pat | length > 0
+
+    - name: Ensure Linux SSH Vars credential
+      awx.awx.credential:
+        name: "Linux SSH Vars"
+        organization: "{{ awx_org }}"
+        credential_type: "Linux SSH Vars"
+        inputs:
+          linux_ssh_user: "{{ linux_ssh_user }}"
+          linux_ssh_pass: "{{ linux_ssh_pass }}"
+        state: present
+      no_log: true
+      when: linux_ssh_user | length > 0 and linux_ssh_pass | length > 0
 
     # Disabled — AWX must not make changes to TrueNAS
     # - name: Ensure TrueNAS Production credential
@@ -213,5 +249,6 @@
         playbook: "playbooks/configure_awx.yml"
         credentials:
           - "AWX Admin PAT"
+          - "Linux SSH Vars"
         verbosity: 1
         state: present
