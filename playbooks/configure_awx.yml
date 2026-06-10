@@ -198,7 +198,6 @@
         project: "{{ awx_project_name }}"
         playbook: "{{ item.playbook }}"
         credentials:
-          - "TrueNAS Production"
           - "ubuntu_servers SSH"
         verbosity: 1
         state: present
