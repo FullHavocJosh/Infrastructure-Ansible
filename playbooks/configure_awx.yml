@@ -18,8 +18,14 @@
 # AWX must not make changes to TrueNAS.
 #
 # ── Bootstrap (first run, before AWX is configured) ───────────────────────
-#   doppler run --project FullHavocJosh --config root_hetzner-cluster -- \
-#     ansible-playbook playbooks/configure_awx.yml
+#   LINUX_SSH_USER/PASS live in root_macmini; AWX/auth vars in root_hetzner-cluster.
+#   Merge both configs:
+#
+#   set -a
+#   source <(doppler secrets download --project FullHavocJosh --config root_hetzner-cluster --format env --no-file)
+#   source <(doppler secrets download --project FullHavocJosh --config root_macmini --format env --no-file)
+#   set +a
+#   ansible-playbook playbooks/configure_awx.yml
 #
 # ── Subsequent runs via AWX ────────────────────────────────────────────────
 # Run the "AWX - Configure" job template from the AWX UI — no CLI needed.
