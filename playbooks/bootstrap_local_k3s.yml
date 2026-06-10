@@ -16,56 +16,17 @@
 #
 # Prerequisites:
 #   - 6rx26x1 must be running and SSH-accessible
-#   - TrueNAS API key available (TRUENAS_ANSIBLE_API_KEY)
+#   - k3sworkervm0 and k3sworkervm1 must be powered on (start them manually in TrueNAS if needed)
 #   - After K3s is up: kubectl apply -k ~/home-infrastructure/local-k3s/monitoring/
 
-- name: Start TrueNAS VMs (k3sworkervm0, k3sworkervm1)
-  hosts: truenas
+- name: Verify worker VMs are SSH-accessible
+  hosts: local_k3s_workers
   gather_facts: false
-  vars:
-    vms_to_start:
-      - k3sworkervm0
-      - k3sworkervm1
 
   tasks:
-    - name: Query virtualization instance state
-      ansible.builtin.uri:
-        url: "{{ truenas_api_url }}/api/v2.0/virt/instance/id/{{ item }}"
-        method: GET
-        headers:
-          Authorization: "Bearer {{ truenas_api_key }}"
-        validate_certs: "{{ truenas_verify_ssl }}"
-        return_content: true
-        status_code: [200, 404]
-      loop: "{{ vms_to_start }}"
-      register: vm_states
-      delegate_to: localhost
-
-    - name: Start stopped VMs
-      ansible.builtin.uri:
-        url: "{{ truenas_api_url }}/api/v2.0/virt/instance/id/{{ item.item }}/start"
-        method: POST
-        headers:
-          Authorization: "Bearer {{ truenas_api_key }}"
-        validate_certs: "{{ truenas_verify_ssl }}"
-        status_code: [200, 201]
-      loop: "{{ vm_states.results }}"
-      loop_control:
-        label: "{{ item.item }}"
-      delegate_to: localhost
-      when:
-        - item.status == 200
-        - item.json.status is defined
-        - item.json.status != "RUNNING"
-
-    - name: Wait for VMs to become SSH-accessible
-      ansible.builtin.wait_for:
-        host: "{{ item }}.rollet.family"
-        port: 22
-        delay: 10
-        timeout: 120
-      loop: "{{ vms_to_start }}"
-      delegate_to: localhost
+    - name: Wait for SSH
+      ansible.builtin.wait_for_connection:
+        timeout: 60
 
 - name: Install K3s on master (6rx26x1)
   hosts: 6rx26x1
