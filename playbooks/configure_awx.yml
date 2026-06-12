@@ -52,6 +52,11 @@
     awx_admin_pat: "{{ lookup('env', 'AWX_ADMIN_PAT') }}"
     linux_ssh_user: "{{ lookup('env', 'LINUX_SSH_USER') }}"
     linux_ssh_pass: "{{ lookup('env', 'LINUX_SSH_PASS') }}"
+    github_pat: "{{ lookup('env', 'GITHUB_PAT') }}"
+    # Works both from the Mac (AWX_ADMIN_PAT via Doppler) and from AWX itself
+    # (CONTROLLER_OAUTH_TOKEN injected by the AAP credential).
+    awx_api_token: "{{ lookup('env', 'CONTROLLER_OAUTH_TOKEN') | default(lookup('env', 'AWX_ADMIN_PAT'), true) }}"
+    infrastructure_ansible_repo: "FullHavocJosh/Infrastructure-Ansible"
 
     # truenas_job_templates:  # Disabled — AWX must not make changes to TrueNAS
     #   - name: "TrueNAS - Overview"
@@ -77,6 +82,8 @@
       - name: "Local K3s - Bootstrap"
         playbook: "playbooks/bootstrap_local_k3s.yml"
 
+    apt_upgrade_schedule_rrule: "DTSTART:20260601T030000Z RRULE:FREQ=WEEKLY;BYDAY=SU"
+
   tasks:
 
     # ── Credential Types ────────────────────────────────────────────────────
@@ -100,6 +107,23 @@
     #     state: present
 
     # ── Credential Types ────────────────────────────────────────────────────
+
+    - name: Ensure GitHub PAT credential type
+      awx.awx.credential_type:
+        name: "GitHub PAT"
+        kind: cloud
+        inputs:
+          fields:
+            - id: github_pat
+              type: string
+              label: GitHub Personal Access Token
+              secret: true
+          required:
+            - github_pat
+        injectors:
+          env:
+            GITHUB_PAT: !unsafe "{{ github_pat }}"
+        state: present
 
     - name: Ensure Linux SSH Vars credential type
       awx.awx.credential_type:
@@ -160,6 +184,17 @@
     #       truenas_api_key: "{{ truenas_api_key }}"
     #     state: present
     #   no_log: true
+
+    - name: Ensure GitHub PAT credential
+      awx.awx.credential:
+        name: "GitHub PAT"
+        organization: "{{ awx_org }}"
+        credential_type: "GitHub PAT"
+        inputs:
+          github_pat: "{{ github_pat }}"
+        state: present
+      no_log: true
+      when: github_pat | length > 0
 
     - name: Ensure ubuntu_servers SSH Machine credential
       awx.awx.credential:
@@ -245,6 +280,31 @@
         state: present
       loop: "{{ local_k3s_job_templates }}"
 
+    - name: Ensure Ubuntu Servers - APT Upgrade job template
+      awx.awx.job_template:
+        name: "Ubuntu Servers - APT Upgrade"
+        organization: "{{ awx_org }}"
+        job_type: run
+        inventory: "{{ awx_inventory_name }}"
+        project: "{{ awx_project_name }}"
+        playbook: "playbooks/apt_upgrade.yml"
+        credentials:
+          - "ubuntu_servers SSH"
+        verbosity: 1
+        state: present
+      # Playbook must be present in main before AWX can register it.
+      # Skips gracefully until apt_upgrade.yml is merged.
+      ignore_errors: true
+
+    - name: Ensure APT Upgrade weekly schedule
+      awx.awx.schedule:
+        name: "Ubuntu Servers - APT Upgrade (weekly)"
+        unified_job_template: "Ubuntu Servers - APT Upgrade"
+        rrule: "{{ apt_upgrade_schedule_rrule }}"
+        enabled: true
+        state: present
+      ignore_errors: true
+
     - name: Ensure AWX - Configure job template
       awx.awx.job_template:
         name: "AWX - Configure"
@@ -256,5 +316,80 @@
         credentials:
           - "AWX Admin PAT"
           - "Linux SSH Vars"
+          - "GitHub PAT"
+        webhook_service: github
         verbosity: 1
         state: present
+
+    # ── GitHub webhook ───────────────────────────────────────────────────────
+    # Registers a push webhook on Infrastructure-Ansible so AWX - Configure
+    # runs automatically on every merge to main.
+
+    - name: Get AWX - Configure job template details
+      ansible.builtin.uri:
+        url: "https://awx.rollet.family/api/v2/job_templates/?name=AWX+-+Configure"
+        headers:
+          Authorization: "Bearer {{ awx_api_token }}"
+        validate_certs: true
+      register: awx_configure_jt
+      when: github_pat | length > 0
+
+    - name: Get AWX webhook key
+      ansible.builtin.uri:
+        url: "https://awx.rollet.family/api/v2/job_templates/{{ awx_configure_jt.json.results[0].id }}/webhook_key/"
+        headers:
+          Authorization: "Bearer {{ awx_api_token }}"
+        validate_certs: true
+      register: awx_webhook_key_result
+      when: github_pat | length > 0
+
+    - name: Set webhook facts
+      ansible.builtin.set_fact:
+        awx_configure_jt_id: "{{ awx_configure_jt.json.results[0].id }}"
+        awx_configure_webhook_url: "https://awx.rollet.family/api/v2/job_templates/{{ awx_configure_jt.json.results[0].id }}/github/"
+        awx_configure_webhook_key: "{{ awx_webhook_key_result.json.webhook_key }}"
+      when: github_pat | length > 0
+
+    # GitHub webhook registration uses `gh` CLI (Mac bootstrap only).
+    # When AWX runs this playbook automatically, CONTROLLER_OAUTH_TOKEN is set
+    # and these tasks are skipped — the webhook already exists at that point.
+    - name: Get existing GitHub webhooks on Infrastructure-Ansible
+      ansible.builtin.command:
+        cmd: gh api repos/{{ infrastructure_ansible_repo }}/hooks
+      register: github_hooks_raw
+      changed_when: false
+      when: lookup('env', 'CONTROLLER_OAUTH_TOKEN') | length == 0
+
+    - name: Find existing AWX webhook
+      ansible.builtin.set_fact:
+        existing_awx_hook: "{{ github_hooks_raw.stdout | from_json | selectattr('config.url', 'search', 'awx.rollet.family') | list | first | default({}) }}"
+      when: lookup('env', 'CONTROLLER_OAUTH_TOKEN') | length == 0
+
+    - name: Create GitHub webhook for AWX - Configure
+      ansible.builtin.command:
+        cmd: >
+          gh api repos/{{ infrastructure_ansible_repo }}/hooks
+          --method POST
+          -F name=web
+          -F active=true
+          -F events[]=push
+          -F config[url]={{ awx_configure_webhook_url }}
+          -F config[content_type]=json
+          -F config[secret]={{ awx_configure_webhook_key }}
+          -F config[insecure_ssl]=0
+      when: lookup('env', 'CONTROLLER_OAUTH_TOKEN') | length == 0 and existing_awx_hook.id is not defined
+      no_log: true
+
+    - name: Update existing GitHub webhook for AWX - Configure
+      ansible.builtin.command:
+        cmd: >
+          gh api repos/{{ infrastructure_ansible_repo }}/hooks/{{ existing_awx_hook.id }}
+          --method PATCH
+          -F active=true
+          -F events[]=push
+          -F config[url]={{ awx_configure_webhook_url }}
+          -F config[content_type]=json
+          -F config[secret]={{ awx_configure_webhook_key }}
+          -F config[insecure_ssl]=0
+      when: lookup('env', 'CONTROLLER_OAUTH_TOKEN') | length == 0 and existing_awx_hook.id is defined
+      no_log: true

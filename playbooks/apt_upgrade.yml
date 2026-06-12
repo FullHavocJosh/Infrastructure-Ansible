@@ -1,0 +1,42 @@
+---
+# Full apt upgrade for all Ubuntu servers — runs weekly via AWX schedule.
+#
+# serial: 1 ensures nodes upgrade one at a time so the local K3s cluster
+# stays healthy throughout. Each node reboots only if the kernel or a
+# core library changed (i.e. /var/run/reboot-required exists).
+#
+# Targets: ubuntu_servers + local_k3s_workers
+# Schedule: Sundays 03:00 UTC (configured in configure_awx.yml)
+
+- name: Full apt upgrade
+  hosts: ubuntu_servers:local_k3s_workers
+  become: true
+  serial: 1
+
+  tasks:
+    - name: Update cache and full-upgrade
+      ansible.builtin.apt:
+        update_cache: true
+        upgrade: full
+        autoremove: true
+        autoclean: true
+      register: apt_result
+
+    - name: Report upgrade result
+      ansible.builtin.debug:
+        msg: "{{ apt_result.stdout_lines | default(['No output']) }}"
+
+    - name: Check if reboot required
+      ansible.builtin.stat:
+        path: /var/run/reboot-required
+      register: reboot_required_file
+
+    - name: Reboot if required
+      ansible.builtin.reboot:
+        reboot_timeout: 300
+        msg: "Reboot triggered by apt_upgrade playbook"
+      when: reboot_required_file.stat.exists
+
+    - name: Report reboot status
+      ansible.builtin.debug:
+        msg: "{{ 'Rebooted' if reboot_required_file.stat.exists else 'No reboot required' }}"
