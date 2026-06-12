@@ -82,7 +82,7 @@
       - name: "Local K3s - Bootstrap"
         playbook: "playbooks/bootstrap_local_k3s.yml"
 
-    apt_upgrade_schedule_rrule: "DTSTART:20260601T030000Z RRULE:FREQ=WEEKLY;BYDAY=SU"
+    apt_upgrade_schedule_rrule: "DTSTART:20260601T030000Z RRULE:FREQ=WEEKLY;INTERVAL=1;BYDAY=SU"
 
   tasks:
 
