@@ -228,14 +228,12 @@
         organization: "{{ awx_org }}"
         notification_type: webhook
         notification_configuration:
-          url: "https://ntfy.sh"
+          url: "https://ntfy.sh/{{ ntfy_topic }}"
           http_method: POST
           headers:
-            Content-Type: "application/json"
-        messages:
-          error:
-            body: >-
-              {"topic":"{{ ntfy_topic }}","title":"❌ AWX: {{ '{{' }} job_friendly_name {{ '}}' }} failed","message":"{{ '{{' }} url {{ '}}' }}","priority":4,"tags":["warning","awx"]}
+            Title: "AWX Job Failed"
+            Priority: "high"
+            Tags: "warning,awx"
         state: present
 
     # ── Project ─────────────────────────────────────────────────────────────
