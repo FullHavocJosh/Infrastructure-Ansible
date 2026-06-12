@@ -83,6 +83,16 @@
         playbook: "playbooks/bootstrap_local_k3s.yml"
 
     apt_upgrade_schedule_rrule: "DTSTART:20260601T030000Z RRULE:FREQ=WEEKLY;INTERVAL=1;BYDAY=SU"
+    verify_state_schedule_rrule: "DTSTART:20260601T060000Z RRULE:FREQ=DAILY;INTERVAL=1"
+
+    ntfy_topic: "awx-alerts"
+
+    # Only active servers get a nightly schedule. 705g4 is decommissioned.
+    verify_state_schedules:
+      - name: "6rx26x1 - Verify State (nightly)"
+        job_template: "6rx26x1 - Verify State"
+        rrule: "{{ verify_state_schedule_rrule }}"
+        limit: "6rx26x1"
 
   tasks:
 
@@ -210,6 +220,24 @@
       no_log: true
       when: linux_ssh_user | length > 0 and linux_ssh_pass | length > 0
 
+    # ── Notifications ───────────────────────────────────────────────────────
+
+    - name: Ensure ntfy notification template
+      awx.awx.notification_template:
+        name: "ntfy - AWX Alerts"
+        organization: "{{ awx_org }}"
+        notification_type: webhook
+        notification_configuration:
+          url: "https://ntfy.sh"
+          http_method: POST
+          headers:
+            Content-Type: "application/json"
+        messages:
+          error:
+            body: >-
+              {"topic":"{{ ntfy_topic }}","title":"❌ AWX: {{ '{{' }} job_friendly_name {{ '}}' }} failed","message":"{{ '{{' }} url {{ '}}' }}","priority":4,"tags":["warning","awx"]}
+        state: present
+
     # ── Project ─────────────────────────────────────────────────────────────
 
     - name: Ensure Infrastructure-Ansible project
@@ -261,10 +289,22 @@
         limit: "{{ item.limit }}"
         credentials:
           - "ubuntu_servers SSH"
+        notification_templates_error:
+          - "ntfy - AWX Alerts"
         verbosity: 1
         ask_limit_on_launch: true
         state: present
       loop: "{{ ubuntu_server_job_templates }}"
+
+    - name: Ensure Verify State nightly schedules
+      awx.awx.schedule:
+        name: "{{ item.name }}"
+        unified_job_template: "{{ item.job_template }}"
+        rrule: "{{ item.rrule }}"
+        limit: "{{ item.limit }}"
+        enabled: true
+        state: present
+      loop: "{{ verify_state_schedules }}"
 
     - name: Ensure Local K3s job templates
       awx.awx.job_template:
@@ -290,11 +330,10 @@
         playbook: "playbooks/apt_upgrade.yml"
         credentials:
           - "ubuntu_servers SSH"
+        notification_templates_error:
+          - "ntfy - AWX Alerts"
         verbosity: 1
         state: present
-      # Playbook must be present in main before AWX can register it.
-      # Skips gracefully until apt_upgrade.yml is merged.
-      ignore_errors: true
 
     - name: Ensure APT Upgrade weekly schedule
       awx.awx.schedule:
@@ -303,7 +342,6 @@
         rrule: "{{ apt_upgrade_schedule_rrule }}"
         enabled: true
         state: present
-      ignore_errors: true
 
     - name: Ensure AWX - Configure job template
       awx.awx.job_template:
